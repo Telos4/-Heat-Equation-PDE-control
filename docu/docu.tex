@@ -1,0 +1,124 @@
+%----------------------------------------------------------------------------------------
+%	PACKAGES AND OTHER DOCUMENT CONFIGURATIONS
+%----------------------------------------------------------------------------------------
+
+\documentclass[
+12pt, % Default font size is 10pt, can alternatively be 11pt or 12pt
+a4paper, % Alternatively letterpaper for US letter
+onecolumn, % Alternatively twocolumn
+portrait % Alternatively landscape
+]{article}
+
+\input{structure.tex} % Input the file specifying the document layout and structure
+
+%----------------------------------------------------------------------------------------
+%	ARTICLE INFORMATION
+%----------------------------------------------------------------------------------------
+
+\articletitle{Notes on the simulation of the heat equation in Firedrake} 
+
+\datenotesstarted{October 10, 2017}
+\docdate{\datenotesstarted; rev. \today}
+
+\docauthor{Simon Pirkelmann}
+
+%----------------------------------------------------------------------------------------
+
+\begin{document}
+
+\pagestyle{myheadings} % Use custom headers
+\markright{\doctitle} % Place the article information into the header
+
+%----------------------------------------------------------------------------------------
+%	PRINT ARTICLE INFORMATION
+%----------------------------------------------------------------------------------------
+
+\thispagestyle{plain} % Plain formatting on the first page
+
+\printtitle % Print the title
+
+%----------------------------------------------------------------------------------------
+%	ARTICLE NOTES
+%----------------------------------------------------------------------------------------
+\section{Setting}
+Consider the following equation
+\begin{equation}
+y_t -  a \Delta y = 0 \text{ on } \Omega
+\end{equation}
+As a domain we consider the unit square. The boundary is partitioned in an isolating boundary $\Gamma_i$ and a control boundary $\Gamma_c$.
+On the control part of the boundary we have the Dirichlet condition
+\begin{equation}
+y = u \text{ on } \Gamma_c.
+\end{equation}
+On the isolating part we have
+\begin{equation}
+- \frac{\partial y}{\partial n} = 0 \text{ on } \Gamma_i.
+\end{equation}
+
+For simplicity we use a single Robin type boundary condition instead
+\begin{equation}
+- \frac{\partial y}{\partial n} = \gamma (y - u) \text{ on } \Gamma.
+\label{eq:robin-bc}
+\end{equation}
+By choosing 
+$\begin{cases}
+ \gamma = 0 &\text{ on } \Gamma_i \\ 
+\gamma = 10^{6} &\text{ on } \Gamma_c \\
+\end{cases}
+$,
+we can approximate both types of boundary conditions in a uniform way.
+This will also allow us to extend the setting more easily in the future.
+\section{Weak form}
+For the weak for of the equation we replace $y_t$ by $\frac{y_{k+1} - y_k}{h}$ and $y$ by $y_{k+1}$ using backward Euler with sampling rate $h > 0$. Multiplying with a test function $v$ and integrating yields
+\begin{equation}
+\int_{\Omega} \frac{y_{k+1} - y_k}{h} v \; dx - a \int_{\Omega} \Delta y_{k+1} v \; dx = 0
+\end{equation}
+Using partial integration on the second integral we get
+\begin{equation}
+\int_{\Omega} \frac{y_{k+1} - y_k}{h} v \; dx - a \int_{\Gamma} \frac{\partial y_{k+1}}{\partial n} v \; ds + a \int_{\Omega} \nabla y_{k+1} \cdot \nabla v \; dx = 0
+\end{equation}
+Substituting the boundary condition \eqref{eq:robin-bc} we obtain
+\begin{equation}
+\int_{\Omega} \frac{y_{k+1} - y_k}{h} v \; dx + a \gamma \int_{\Gamma}  (y_{k+1} - u) v \; ds + a \int_{\Omega} \nabla y_{k+1} \cdot \nabla v \; dx = 0
+\end{equation}
+We can group the terms in the previous equations by terms that depend on $y_{k+1}$, and terms that do not depend on $y_{k+1}$ (an thus only depend on the external data ($y_k$ and $u$):
+\begin{equation}
+\underbrace{
+\int_{\Omega} y_{k+1} v \; dx + h a \gamma \int_{\Gamma} y_{k+1} v \; ds + h a \int_{\Omega} \nabla y_{k+1} \cdot \nabla v \; dx
+}_{a(y_{k+1}, v)}
+ = 
+\underbrace{ 
+\int_{\Omega} y_k v \; dx + h a \gamma \int_{\Gamma} u v \; ds
+}_{F(v)}
+\end{equation}
+
+\section{Implementation in Firedrake}
+To solve the equation $a(y_{k+1}, v) = F(v)$ in Firedrake we first need to define the bilinearform (?) $a$ and the functional $F$.
+
+\begin{python}
+self.a = (self.y1 * v + h * ac * inner(grad(self.y1), grad(v))) * dx
+for i in range(1,5):
+    self.a += h * ac * Constant(gamma[i-1]) * self.y1 * v * ds(i)
+\end{python}
+
+
+\begin{python}
+self.F = inner(self.y0, v) * dx
+for i in range(1, 5):
+    self.F += h * ac * Constant(gamma[i-1]) * Constant(u[i-1]) * v * ds(i)
+\end{python}
+
+\newpage
+%----------------------------------------------------------------------------------------
+%	BIBLIOGRAPHY
+%----------------------------------------------------------------------------------------
+
+\renewcommand{\refname}{Reference} % Change the default bibliography title
+
+\bibliography{../bibtex} % Input your bibliography file
+\bibliographystyle{plain}
+
+
+%----------------------------------------------------------------------------------------
+
+\end{document}
