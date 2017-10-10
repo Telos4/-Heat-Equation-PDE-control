@@ -8,8 +8,9 @@ class HeatEq(object):
         self.verbose = True
         self.mesh = mesh
         self.dt = 0.001
-        self.k = 0.0257
-        self.gamma = 0.1
+        self.k = 0.257
+        self.u = 25.0
+        self.gamma = 1.0e3
         self.S = FunctionSpace(self.mesh, "CG", 1)
 
         self.heat_eq_solver_parameters = {
@@ -18,6 +19,14 @@ class HeatEq(object):
             "ksp_type": "cg",
             "ksp_atol": 1e-10,
             "pc_type": "hypre",
+        }
+
+        self.heat_eq_solver_parameters = {
+            "mat_type": "aij",
+            "snes_type": "ksponly",
+            "ksp_type": "cg",
+            "ksp_atol": 1e-10,
+            "pc_type": "lu",
         }
 
         if self.verbose:
@@ -38,9 +47,10 @@ class HeatEq(object):
         self.y1.assign(self.y0)
 
         h = Constant(self.dt)
-        gamma_c = self.gamma
+        gamma = [0.0, 0.0, 0.0, self.gamma]
         ac = self.k
-        u = 0.1
+        u = [0.0, 0.0, 0.0, self.u]
+        #u = 0.1
 
         # ENERGY EQUATION
 
@@ -50,12 +60,13 @@ class HeatEq(object):
             #- h * gamma_c * u * v * ds(1)
             #- inner(self.y0, v) * dx
 
-        self.a = (inner(self.y1, v) + h * ac * inner(grad(self.y1), grad(v))) * dx
+        self.a = (self.y1 * v + h * ac * inner(grad(self.y1), grad(v))) * dx
         for i in range(1,5):
-            self.a -= h * gamma_c * self.y1 * v * ds(i)
+            self.a += h * ac * Constant(gamma[i-1]) * self.y1 * v * ds(i)
         self.F = inner(self.y0, v) * dx
         for i in range(1, 5):
-            self.F -= h * gamma_c * u * v * ds(i)
+            self.F += h * ac * Constant(gamma[i-1]) * Constant(u[i-1]) * v * ds(i)
+
         #F1 = inner((self.T1 - self.T0), s) * dx + self.idt * self._weak_form(self.T1, s, self.k) \
         #        + self.idt * self.gamma_c * self.T1 * s * ds - self.idt * self.gamma_c * self.u * s * ds
 
@@ -70,6 +81,26 @@ class HeatEq(object):
 
         self.heat_eq_problem = NonlinearVariationalProblem(self.a - self.F, self.y1)
 
+
+        self.heat_eq_solver = NonlinearVariationalSolver(
+            self.heat_eq_problem,
+            solver_parameters=self.heat_eq_solver_parameters)
+
+    def update_solver(self):
+        v = TestFunction(self.S)
+        h = Constant(self.dt)
+        gamma = [0.0, 0.0, 0.0, self.gamma]
+        ac = self.k
+        u = [0.0, 0.0, 0.0, self.u]
+
+        self.a = (inner(self.y1, v) + h * ac * inner(grad(self.y1), grad(v))) * dx
+        for i in range(1, 5):
+            self.a += h * Constant(gamma[i - 1]) * self.y1 * v * ds(i)
+        self.F = inner(self.y0, v) * dx
+        for i in range(1, 5):
+            self.F += h * Constant(gamma[i - 1]) * Constant(u[i - 1]) * v * ds(i)
+
+        self.heat_eq_problem = NonlinearVariationalProblem(self.a - self.F, self.y1)
 
         self.heat_eq_solver = NonlinearVariationalSolver(
             self.heat_eq_problem,
@@ -107,7 +138,7 @@ if __name__ == "__main__":
     cwd = abspath(dirname(__file__))
     data_dir = join(cwd, "data")
 
-    mesh = UnitSquareMesh(25,25)
+    mesh = UnitSquareMesh(10,10)
 
     heateq = HeatEq(mesh)
 
@@ -148,3 +179,10 @@ if __name__ == "__main__":
             outfile.write(y1)
 
         step += 1
+
+        if step % 200 == 0:
+                heateq.u *= -1.0
+                heateq.update_solver()
+
+        print("step: " + str(step))
+        print("u = " + str(heateq.u))
