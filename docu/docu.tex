@@ -44,16 +44,40 @@ portrait % Alternatively landscape
 Consider the following equation
 \begin{equation}
 y_t -  a \Delta y = 0 \text{ on } \Omega
+\label{eq:pde}
 \end{equation}
+where $y : \Omega \times [0, \infty) \rightarrow \mathbb{R}$ is the temperature, $a \in \mathbb{R}$ is the diffusion coefficient. We use the shorthand $y_t = \frac{\partial y}{\partial t}$ to denote the time derivative.
+ 
 As a domain we consider the unit square. The boundary is partitioned in an isolating boundary $\Gamma_i$ and a control boundary $\Gamma_c$.
-On the control part of the boundary we have the Dirichlet condition
+On the control part of the boundary heating/cooling is applied which is described by a Dirichlet condition
 \begin{equation}
 y = u \text{ on } \Gamma_c.
 \end{equation}
 On the isolating part we have
 \begin{equation}
-- \frac{\partial y}{\partial n} = 0 \text{ on } \Gamma_i.
+- \frac{\partial y}{\partial n} = 0 \text{ on } \Gamma_i
 \end{equation}
+where $\frac{\partial y}{\partial n}$ is the derivative of $y$ in normal direction.
+
+\begin{center}
+\begin{tikzpicture}
+\draw[->] (-0.25,0) -- (3.25,0) node[anchor=north] {};
+\draw[->] (0,-0.25) -- (0,3.25) {};
+
+\draw [blue] plot coordinates {(0,0) (0,3) (3,3) (3,0)};
+
+\draw [red] plot coordinates { (0,0) (3,0)};
+
+\draw	(-0.2,-0.25) node {$0$}
+		(-0.2,3) node {$1$}
+		(3,-0.25) node {$1$}	
+		(1.5, 1.5) node {\large{$\Omega$}}
+		(1.5, -0.3) node[red] {\large{$\Gamma_c$}}
+		(1.5, 3.28) node[blue] {\large{$\Gamma_i$}}
+		;
+\end{tikzpicture}
+\end{center}
+
 
 For simplicity we use a single Robin type boundary condition instead
 \begin{equation}
@@ -63,12 +87,12 @@ For simplicity we use a single Robin type boundary condition instead
 By choosing 
 $\begin{cases}
  \gamma = 0 &\text{ on } \Gamma_i \\ 
-\gamma = 10^{6} &\text{ on } \Gamma_c \\
+\gamma = 10^{3} &\text{ on } \Gamma_c \\
 \end{cases}
 $,
 we can approximate both types of boundary conditions in a uniform way.
 This will also allow us to extend the setting more easily in the future.
-\section{Weak form}
+\section{Weak Form}
 For the weak for of the equation we replace $y_t$ by $\frac{y_{k+1} - y_k}{h}$ and $y$ by $y_{k+1}$ using backward Euler with sampling rate $h > 0$. Multiplying with a test function $v$ and integrating yields
 \begin{equation}
 \int_{\Omega} \frac{y_{k+1} - y_k}{h} v \; dx - a \int_{\Omega} \Delta y_{k+1} v \; dx = 0
@@ -96,18 +120,186 @@ We can group the terms in the previous equations by terms that depend on $y_{k+1
 To solve the equation $a(y_{k+1}, v) = F(v)$ in Firedrake we first need to define the bilinearform (?) $a$ and the functional $F$.
 
 \begin{python}
-self.a = (self.y1 * v + h * ac * inner(grad(self.y1), grad(v))) * dx
+# Definitions 
+S = FunctionSpace(self.mesh, "CG", 1)
+v = TestFunction(S)
+y1 = Function(S)
+y0 = Function(S)
+
+h = Constant(0.001)
+gamma = [0.0, 0.0, 1.0e3, 0.0] # gamma for different parts of the the boundary
+ac = 0.2
+u = [0.0, 0.0, 25.0, 0.0]
+\end{python}
+
+\begin{python}
+a = (y1 * v + h * ac * inner(grad(y1), grad(v))) * dx
 for i in range(1,5):
-    self.a += h * ac * Constant(gamma[i-1]) * self.y1 * v * ds(i)
+    a += h * ac * Constant(gamma[i-1]) * y1 * v * ds(i)
 \end{python}
 
 
 \begin{python}
-self.F = inner(self.y0, v) * dx
+F = inner(y0, v) * dx
 for i in range(1, 5):
-    self.F += h * ac * Constant(gamma[i-1]) * Constant(u[i-1]) * v * ds(i)
+    F += h * ac * Constant(gamma[i-1]) * Constant(u[i-1]) * v * ds(i)
 \end{python}
 
+\section{Optimal Control Problem}
+Now that the simulation is running we want to implement an optimal control problem on top of it. Our goal is to solve the following problem:
+\begin{align*}
+\min_{y,u} J(y, u) = & \frac{1}{2}\int_{\Omega} (y(x, T) - y_{\Omega}(T,x))^2 \; dx + \frac{1}{2} \int_{0}^{T} \int_{\Omega} (y(x,t) - y_{\Omega}(t,x))^2 \; dx \; dt \\
+& + \frac{\lambda}{2} \int_{0}^{T} \int_{\Gamma} (u(x,t))^2 \; ds \; dt \\
+\text{s.t.} & \eqref{eq:pde}, \eqref{eq:robin-bc} \\
+& \underline{u}(x,t) \leq u(x,t) \leq \overline{u}(x,t) \\
+& \underline{y}(x,t) \leq y(x,t) \leq \overline{y}(x,t)
+\end{align*}
+While the constraints on the control can be dealt with rather straightforwardly, the state constraints present some challenges. We will use Lavrentiev regularisation to handle the state constraints. The Lavrentiev regularisation replaces the state constraint by a mixed state-control constraint. For this we introduce an additional control variable $v : \Omega \times [0, \infty) \rightarrow \mathbb{R}$ defined on the whole domain. This control variable will also be penalized in the cost functional, and so the cost functional is modified to
+\begin{align*}
+\min_{u,v} J(y, u, v) = & \frac{1}{2}\int_{\Omega} (y(x, T) - y_{\Omega}(T,x))^2 \; dx + \frac{1}{2} \int_{0}^{T} \int_{\Omega} (y(x,t) - y_{\Omega}(t,x))^2 \; dx \; dt \\
+& \frac{\sigma}{2} \int_{0}^{T} \int_{\Omega} (v(x,t))^2 \; dx \; dt 
++ \frac{\lambda}{2} \int_{0}^{T} \int_{\Gamma} (u(x,t))^2 \; ds \; dt
+\end{align*}
+The state constraint is replaced by the auxiliary control constraint
+%\begin{equation}
+
+%\end{equation}
+\begin{alignat*}{2}
+\underline{y}(x,t) &\leq y(x,t) + \varepsilon v(x,t) &&\leq \overline{y}(x,t) \\
+\Leftrightarrow \underbrace{\frac{1}{\varepsilon}(\underline{y}(x,t) - y(x,t))}_{\underline{v}(x,t)} &\leq v(x,t) &&\leq \underbrace{\frac{1}{\varepsilon}(\overline{y}(x,t) - y(x,t))}_{\overline{v}(x,t)} \\
+\end{alignat*}
+
+This kind of optimal control problem (with both a control on the boundary and a control in the domain) is considered in [Tr\"oltzsch, p.221ff]. We look at the general cost functional
+\begin{align*}
+\min_{y,u,v} J(y, u, v) = & \int_{\Omega} \phi(x, y(T)) \; dx + \int \int_{Q} \varphi(x, t, y, v) \; dx \; dt \\
+& + \int \int_{\Sigma} \psi(x,t,y, u) \; ds \; dt \\
+\end{align*}
+subject to
+\begin{alignat*}{2}
+y_t - \Delta y + d(x,t,y,v) &= 0 && \text{ in } Q \\
+\partial_n y + b(x,t,y,u) &= 0 && \text{ in } \Sigma \\
+y(\cdot,0) &= y_0 && \text{ on } \Omega \\
+v_a(x,t) \leq v(x,t) &\leq v_b(x,t) &&\text{ in } Q \\
+u_a(x,t) \leq u(x,t) &\leq u_b(x,t) &&\text{ in } \Sigma
+\end{alignat*}
+
+In our case we have the following identities:
+\begin{align*}
+\phi(x,y(x,T)) & = \frac{1}{2} (y(x,T) - y_{\Omega}(x,T))^2 \\
+\phi_y(x,y(x,T)) & = y(x,T) - y_{\Omega}(x,T) \\
+\\
+\varphi(x,t, y(x,t), v(x,t)) & = \frac{1}{2} (y(x,t) - y_{\Omega}(x,t))^2 + \frac{\sigma}{2} (v(x,t))^2 \\
+\varphi_y(x,t,y(x,t), v(x,t)) &= y(x,t) - y_{\Omega}(x,t) \\
+\varphi_v(x,t,y(x,t), v(x,t)) &= \sigma v(x,t) \\
+\\
+\psi(x,t,y(x,t), u(x,t)) &= \frac{\lambda}{2} (u(x,t))^2 \\
+\psi_y(x,t,y(x,t), u(x,t)) &= 0 \\
+\psi_u(x,t,y(x,t), u(x,t)) &= \lambda u(x,t) \\
+\\
+d(x,t, y(x,t), v(x,t)) &= 0 \\
+d_y(x,t, y(x,t), v(x,t)) &= 0 \\
+d_v(x,t, y(x,t), v(x,t)) &= 0 \\
+\\
+b(x,t, y(x,t), u(x,t)) &= \gamma(x,t) (y(x,t) - u(x,t)) \\
+b_y(x,t, y(x,t), u(x,t)) &= \gamma(x,t) \\
+b_u(x,t, y(x,t), u(x,t)) &= -\gamma(x,t)
+\end{align*}
+
+\section{Derivation of the adjoint system}
+We introduce the adjoint states $p_1$ and $p_2$ to remove the PDE equality constraints. The Lagrangian for the problem is given by
+\begin{align*}
+\mathcal{L}(y,u,v,p_1, p_2) = & J(y,u,v) - \int_{0}^{T} \int_{\Omega} (\frac{\partial y}{\partial t} - \Delta y + d(x,t,y,v)) p_1 \; dx \; dt \\ & - \int_{0}^{T} \int_{\Gamma} (\partial_n y + b(x,t,y,u)) p_2 \; dx \; dt
+\end{align*}
+For optimality we need
+\begin{alignat*}{2}
+D_y \mathcal{L}(\bar{y},\bar{u},\bar{v},p_1, p_2) y & = 0, &\text{ for all } y \text{ with } y(\cdot, 0) = 0 \\
+D_u \mathcal{L}(\bar{y},\bar{u},\bar{v},p_1, p_2) (u - \bar{u}) & \geq 0, &\text{ for all } u \in U_{ad} \\
+D_v \mathcal{L}(\bar{y},\bar{u},\bar{v},p_1, p_2) (v - \bar{v}) & \geq 0, &\text{ for all } v \in V_{ad} \\
+\end{alignat*}
+In the following we compute $D_y \mathcal{L}$, $D_u \mathcal{L}$ and $D_v \mathcal{L}$. We start with $D_y \mathcal{L}$:
+\begin{align*}
+ D_y \mathcal{L}(y, u,v, p_1, p_2) h = & D_y J(y,u,v) h - \int_{0}^{T} \int_{\Omega} (\frac{\partial h}{\partial t} - \Delta h + d_y(x,t,y,v) h) p_1 \; dx \; dt \\ 
+& - \int_{0}^{T} \int_{\Gamma} (\partial_n h + b_y(x,t,y,u) h) p_2 \; dx \; dt,
+\end{align*} 
+where for $D_y J(y,u,v)$ it holds that
+\begin{equation}
+D_y J(y,u,v) h = \int_{\Omega} \phi_y(x,y) h(T) \; dx + \int_{0}^{T} \int_{\Omega} \varphi_y(x,t,y, v) h \; dx \; dt 
++ \int_{0}^{T} \int_{\Gamma} \psi_y(x,t,y, u) h \; ds \; dt.
+\end{equation}
+First we consider the term
+\begin{align*}
+&- \int_{0}^{T} \int_{\Omega} (\frac{\partial h}{\partial t} - \Delta h + d_y(x,t,y,v) h) p_1 \; dx \; dt \\
+& = - \int_{\Omega} \int_{0}^{T} \frac{\partial h}{\partial t} p_1 \; dx \; dt + \int_{0}^{T} \int_{\Omega} \Delta h p_1 \; dx \; dt - \int_{0}^{T} \int_{\Omega} d_y(x,t,y,v) h p_1 \; dx \; dt.
+\end{align*}
+Using partial integration (in time) for the first term and Green's second formula (in space) for the second term we obtain
+\begin{align*}
+&- \int_{\Omega} \int_{0}^{T} \frac{\partial h}{\partial t} p_1 \; dx \; dt + \int_{0}^{T} \int_{\Omega} \Delta h p_1 \; dx \; dt - \int_{0}^{T} \int_{\Omega} d_y(x,t,y,v) h p_1 \; dx \; dt\\
+= &- \int_{\Omega} \left[h p_1 \right]_0^T \; dx + \int_{\Omega} \int_{0}^{T}   \frac{\partial p_1}{\partial t} h \; dx \; dt + \int_{0}^{T} \int_{\Omega} \Delta p_1 h \; dx \; dt \\ 
+&+ \int_{0}^{T} \int_{\Gamma}
+p_1 \frac{\partial h}{\partial n} \; ds \; dt - \int_{0}^{T} \int_{\Gamma}
+\frac{\partial p_1}{\partial n} h \; ds \; dt
+ - \int_{0}^{T} \int_{\Omega} d_y(x,t,y,v) p_1 h \; dx \; dt \\
+= &\int_{\Omega} p_1(0) h(0) \; dx - \int_{\Omega} p_1(T) h(T) \; dx +  \int_{0}^{T} \int_{\Omega} \frac{\partial p_1}{\partial t} h \; dx \; dt + \int_{0}^{T} \int_{\Omega} \Delta p_1 h \; dx \; dt \\ 
+&+ \int_{0}^{T} \int_{\Gamma}
+p_1 \frac{\partial h}{\partial n} \; ds \; dt - \int_{0}^{T} \int_{\Gamma}
+\frac{\partial p_1}{\partial n} h \; ds \; dt
+ - \int_{0}^{T} \int_{\Omega} d_y(x,t,y,v) p_1 h \; dx \; dt \\
+ \overset{h(0)=0}{=} & - \int_{\Omega} p_1(T) h(T) \; dx + \int_{\Omega} \int_{0}^{T}   \frac{\partial p_1}{\partial t} h \; dx \; dt + \int_{0}^{T} \int_{\Omega} \Delta p_1 h \; dx \; dt \\ 
+&+ \int_{0}^{T} \int_{\Gamma}
+p_1 \frac{\partial h}{\partial n} \; ds \; dt - \int_{0}^{T} \int_{\Gamma} \frac{\partial p_1}{\partial n} h \; ds \; dt
+ - \int_{0}^{T} \int_{\Omega} d_y(x,t,y,v) p_1 h \; dx \; dt \\
+\end{align*}
+In the last step we used that $h(0) = 0$. This is explained in [Tr\"oltzsch, p.96] and follows from a substitution $y := y - \bar{y}$ for the state.\\
+By substituting the above equation in the original equation and ordering by integration domains we obtain
+\begin{align*}
+D_y J(y,u,v) h = & \int_{\Omega} (\phi_y(x,y) - p_1(T)) h(T) \; dx \\
+& + \int_{0}^{T} \int_{\Omega} (\frac{\partial p_1}{\partial t} + \Delta p_1 - d_y(x,t,y,v) p_1 + \varphi_y(x,t,y, v)) h \; dx \; dt  \\
+& + \int_{0}^{T} \int_{\Gamma} (p_1 - p_2) \frac{\partial h}{\partial n} \; ds \; dt \\
+& + \int_{0}^{T} \int_{\Gamma} (- \frac{\partial p_1}{\partial n} - b_y(x,t,y,u) p_2 + \psi_y(x,t,y, u))  h \; ds \; dt
+\end{align*}
+Now we make special choices of $h$, first $h \in C_0^\infty(Q)$, then with arbitrary $h(T)$, arbitrary $h|_\Sigma$  and finally with arbitrary $\frac{\partial h}{\partial n}$, and we set $p := p_1$, $p_2 = p$ on $\Sigma$. From this we obtain the following adjoint equation:
+\begin{alignat*}{2}
+-p_t - \Delta p + d_y(x,t,\bar{y}) p &= \varphi_y(x,t,\bar{y}, \bar{v}) &&\text{ in } Q \\
+\partial_n p + b_y(x,t,\bar{y}) p &= \psi_y(x,t,\bar{y}, \bar{u}) &&\text{ in } \Sigma \\
+p(x,T) &= \phi_y(x, \bar{y}(x,T)) &&\text{ in } \Omega
+\end{alignat*}
+This can also be found in [Tr\"oltzsch, p.225f].\\
+Finally we also compute $D_u \mathcal{L}$ and $D_v \mathcal{L}$:
+\begin{align*}
+D_u \mathcal{L}(y,u,v, p) h & = D_u J(y,u,v) h - \int_{0}^{T} \int_{\Gamma} b_u(x,t,y,u) p h \; ds \; dt \\
+& = \int_{0}^{T} \int_{\Gamma}  (\psi_u(x,t,y,u) -  b_u(x,t,y,u) p)  h \; ds \; dt
+\end{align*}
+\begin{align*}
+D_v \mathcal{L}(y,u,v, p) h & = D_v J(y,u,v) h - \int_{0}^{T} \int_{\Omega} d_v(x,t,y,v) p h \; dx \; dt \\
+& = \int_{0}^{T} \int_{\Omega}  (\varphi_v(x,t,y,v) -  d_v(x,t,y,v) p)  h \; dx \; dt
+\end{align*}
+
+
+\section{Solution by Projected Gradient Method}
+Let $N \in \mathbb{N}$ be the MPC horizon and let $u^n := (u_0^n, u_1^n, \hdots, u_{N-1}^n)$, $v^n := (v_0^n, v_1^n, \hdots, v_{N-1}^n)$ be the iterates of the optimization algorithm. \\ 
+The gradient of the reduced cost functional $f(v,u) = J(y(v,u), v, u)$ is given by
+\begin{align*}
+f'(v^n, u^n)(v,u) = & \int \int_Q (\varphi_v(x,u, y^n, v^n) - d_v(x,t,y,v) p^n) \; v \; dx \; dt \\
+& + \int \int_{\Sigma} (\psi_u(x,t,y^n, u^n) - b_u(x,t,y,u) p^n) \; u \; ds \; dt
+\end{align*}
+This can also be found in [Tr\"oltzsch, p. 243f], for the special case of $d(x,t,y,v) = v$, $b(x,t,y,u) = u$.
+
+Solution algorithm:\\
+\begin{enumerate}
+\item Solve forward system for given $(u_n, v_n)$ $\rightsquigarrow y_n$ \\
+\item Solve adjoint system $\rightsquigarrow p_n$ \\
+\item Descent directions
+\begin{align*}
+&h_n := -(\varphi_v(\cdot, y_n, v_n) - d_v(\cdot,y_n,v_n) p_n) \\ 
+&r_n := -(\psi_u(\cdot, y_n |_{\Sigma}, u_n) - b_u(\cdot,y_n,u_n) p_n |_{\Sigma})
+\end{align*}
+\item Compute step size $\rightsquigarrow s_n$
+(e.g. use $\min_{s > 0} f(\mathbb{P}_V(v_n+s h_n), \mathbb{P}_U(u_n + s r_n)).$
+\item New iterates:
+\begin{equation}
+(v_{n+1}, u_{n+1}) := (\mathbb{P}_V(v_n + s_n h_n), \mathbb{P}_U(u_n + s_n r_n))
+\end{equation}
+\end{enumerate}
 \newpage
 %----------------------------------------------------------------------------------------
 %	BIBLIOGRAPHY
