@@ -258,11 +258,14 @@ D_y J(y,u,v) h = & \int_{\Omega} (\phi_y(x,y) - p_1(T)) h(T) \; dx \\
 & + \int_{0}^{T} \int_{\Gamma} (- \frac{\partial p_1}{\partial n} - b_y(x,t,y,u) p_2 + \psi_y(x,t,y, u))  h \; ds \; dt
 \end{align*}
 Now we make special choices of $h$, first $h \in C_0^\infty(Q)$, then with arbitrary $h(T)$, arbitrary $h|_\Sigma$  and finally with arbitrary $\frac{\partial h}{\partial n}$, and we set $p := p_1$, $p_2 = p$ on $\Sigma$. From this we obtain the following adjoint equation:
-\begin{alignat*}{2}
--p_t - \Delta p + d_y(x,t,\bar{y}) p &= \varphi_y(x,t,\bar{y}, \bar{v}) &&\text{ in } Q \\
-\partial_n p + b_y(x,t,\bar{y}) p &= \psi_y(x,t,\bar{y}, \bar{u}) &&\text{ in } \Sigma \\
+\begin{equation}
+\begin{alignedat}{2}
+-p_t - \Delta p + d_y(x,t,\bar{y}, \bar{v}) p &= \varphi_y(x,t,\bar{y}, \bar{v}) &&\text{ in } Q \\
+\partial_n p + b_y(x,t,\bar{y}, \bar{u}) p &= \psi_y(x,t,\bar{y}, \bar{u}) &&\text{ in } \Sigma \\
 p(x,T) &= \phi_y(x, \bar{y}(x,T)) &&\text{ in } \Omega
-\end{alignat*}
+\label{eq:adjoint-pde}
+\end{alignedat}
+\end{equation}
 This can also be found in [Tr\"oltzsch, p.225f].\\
 Finally we also compute $D_u \mathcal{L}$ and $D_v \mathcal{L}$:
 \begin{align*}
@@ -274,19 +277,46 @@ D_v \mathcal{L}(y,u,v, p) h & = D_v J(y,u,v) h - \int_{0}^{T} \int_{\Omega} d_v(
 & = \int_{0}^{T} \int_{\Omega}  (\varphi_v(x,t,y,v) -  d_v(x,t,y,v) p)  h \; dx \; dt
 \end{align*}
 
+\section{Weak form of the adjoint system}
+To derive the weak form of the adjoint system \eqref{eq:adjoint-pde} we use backward Euler and replace $p_t$ by $\frac{p_{k+1} - p_k}{h}$. We multiply with the test function $v$ and integrate:
+\begin{align*}
+- \int_{\Omega} \frac{p_{k+1} - p_k}{h} v \; dx - \int_{\Omega} \Delta p_{k+1} v \; dx + \int_{\Omega} d_y(x,t_{k}, y_k, v_k) p_{k+1} v \; dx = \int_{\Omega} \varphi_y(x,t,y_k, v_k) v \; dx
+\end{align*}
+Using partial integration on the second integral and inserting the boundary condition yields 
+\begin{align*}
+- \int_{\Omega} \Delta p_{k+1} v \; dx & = - \int_{\Gamma} \frac{\partial p_{k+1}}{\partial n} v ds + \int_{\Omega} \nabla p_{k+1} \nabla v \; dx \\
+& = \int_{\Gamma} b_y(x,t_k, y_k, u_k) p_{k+1} v \; ds - \int_{\Gamma} \psi_y(x,t_k, y_k, u_k) v \; ds + \int_{\Omega} \nabla p_{k+1} \nabla v \; dx
+\end{align*}
+We insert this in the first equation again and order by integration domain
+\begin{align*}
+\int_{\Omega} (-\frac{p_{k+1} - p_k}{h} + d_y(x,t_{k}, y_k, v_k) p_{k+1} - \varphi_y(x,t,y_k, v_k)) v + \nabla p_{k+1} \nabla v dx & \\
++ \int_{\Gamma} (b_y(x,t_k, y_k, u_k) p_{k+1} - \psi_y(x,t_k, y_k, u_k) ) v \; ds  & = 0
+\end{align*}
+
+\subsection{Adjoint equation for our case}
+In our case the equation simplifies to:
+\begin{align*}
+\int_{\Omega} (-\frac{p_{k+1} - p_k}{h} - (y_k - y_{\Omega,k})) v + \nabla p_{k+1} \nabla v \; dx 
++ \int_{\Gamma} \gamma p_{k+1} v \; ds  = 0
+\end{align*}
+
+Additionally, we have the initial (or rather terminal) condition:
+\begin{alignat*}{2}
+p_{N+1} &= &\phi_y(x, y_{N+1}) = y_{N+1} - y_{\Omega, N+1}
+\end{alignat*}
 
 \section{Solution by Projected Gradient Method}
 Let $N \in \mathbb{N}$ be the MPC horizon and let $u^n := (u_0^n, u_1^n, \hdots, u_{N-1}^n)$, $v^n := (v_0^n, v_1^n, \hdots, v_{N-1}^n)$ be the iterates of the optimization algorithm. \\ 
 The gradient of the reduced cost functional $f(v,u) = J(y(v,u), v, u)$ is given by
 \begin{align*}
-f'(v^n, u^n)(v,u) = & \int \int_Q (\varphi_v(x,u, y^n, v^n) - d_v(x,t,y,v) p^n) \; v \; dx \; dt \\
+f'(v^n, u^n)(v,u) = & \int \int_Q (\varphi_v(x,t, y^n, v^n) - d_v(x,t,y,v) p^n) \; v \; dx \; dt \\
 & + \int \int_{\Sigma} (\psi_u(x,t,y^n, u^n) - b_u(x,t,y,u) p^n) \; u \; ds \; dt
 \end{align*}
 This can also be found in [Tr\"oltzsch, p. 243f], for the special case of $d(x,t,y,v) = v$, $b(x,t,y,u) = u$.
 
 Solution algorithm:\\
 \begin{enumerate}
-\item Solve forward system for given $(u_n, v_n)$ $\rightsquigarrow y_n$ \\
+\item Solve forward system for given $(u^n, v^n)$ $\rightsquigarrow y_n$ \\
 \item Solve adjoint system $\rightsquigarrow p_n$ \\
 \item Descent directions
 \begin{align*}
@@ -300,6 +330,8 @@ Solution algorithm:\\
 (v_{n+1}, u_{n+1}) := (\mathbb{P}_V(v_n + s_n h_n), \mathbb{P}_U(u_n + s_n r_n))
 \end{equation}
 \end{enumerate}
+
+\section{Solver Options/Preconditioning}
 \newpage
 %----------------------------------------------------------------------------------------
 %	BIBLIOGRAPHY
