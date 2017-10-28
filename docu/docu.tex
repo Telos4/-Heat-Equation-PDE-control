@@ -93,7 +93,7 @@ $,
 we can approximate both types of boundary conditions in a uniform way.
 This will also allow us to extend the setting more easily in the future.
 \section{Weak Form}
-For the weak for of the equation we replace $y_t$ by $\frac{y_{k+1} - y_k}{h}$ and $y$ by $y_{k+1}$ using backward Euler with sampling rate $h > 0$. Multiplying with a test function $v$ and integrating yields
+For the weak form of the equation we replace $y_t$ by $\frac{y_{k+1} - y_k}{h}$ and $y$ by $y_{k+1}$ using backward Euler with sampling rate $h > 0$. Multiplying with a test function $v$ and integrating yields
 \begin{equation}
 \int_{\Omega} \frac{y_{k+1} - y_k}{h} v \; dx - a \int_{\Omega} \Delta y_{k+1} v \; dx = 0
 \end{equation}
