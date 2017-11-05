@@ -43,10 +43,10 @@ portrait % Alternatively landscape
 \section{Setting}
 Consider the following equation
 \begin{equation}
-y_t -  a \Delta y = 0 \text{ on } \Omega
+y_t -  \alpha \Delta y = 0 \text{ on } Q := \Omega \times [0,T]
 \label{eq:pde}
 \end{equation}
-where $y : \Omega \times [0, \infty) \rightarrow \mathbb{R}$ is the temperature, $a \in \mathbb{R}$ is the diffusion coefficient. We use the shorthand $y_t = \frac{\partial y}{\partial t}$ to denote the time derivative.
+where $y : Q \rightarrow \mathbb{R}$ is the temperature, $\alpha : Q \rightarrow \mathbb{R}$ is the diffusion coefficient. We use the shorthand $y_t = \frac{\partial y}{\partial t}$ to denote the time derivative.
  
 As a domain we consider the unit square. The boundary is partitioned in an isolating boundary $\Gamma_i$ and a control boundary $\Gamma_c$.
 On the control part of the boundary heating/cooling is applied which is described by a Dirichlet condition
@@ -77,42 +77,48 @@ where $\frac{\partial y}{\partial n}$ is the derivative of $y$ in normal directi
 		;
 \end{tikzpicture}
 \end{center}
-
+TODO: how to get to this boundary condition!
 
 For simplicity we use a single Robin type boundary condition instead
 \begin{equation}
-- \frac{\partial y}{\partial n} = \gamma (y - u) \text{ on } \Gamma.
+- \beta \frac{\partial y}{\partial n} = \gamma (y - z) \text{ on } \Gamma.
 \label{eq:robin-bc}
 \end{equation}
 By choosing 
-$\begin{cases}
- \gamma = 0 &\text{ on } \Gamma_i \\ 
-\gamma = 10^{3} &\text{ on } \Gamma_c \\
+$\gamma := \begin{cases}
+\gamma_{out} &\text{ on } \Gamma_i \\ 
+\gamma_c &\text{ on } \Gamma_c \\
 \end{cases}
-$,
+$
+and
+$z := \begin{cases}
+y_{out} &\text{ on } \Gamma_{out} \\ 
+u &\text{ on } \Gamma_c \\
+\end{cases}
+$
 we can approximate both types of boundary conditions in a uniform way.
 This will also allow us to extend the setting more easily in the future.
 \section{Weak Form}
 For the weak form of the equation we replace $y_t$ by $\frac{y_{k+1} - y_k}{h}$ and $y$ by $y_{k+1}$ using backward Euler with sampling rate $h > 0$. Multiplying with a test function $v$ and integrating yields
 \begin{equation}
-\int_{\Omega} \frac{y_{k+1} - y_k}{h} v \; dx - a \int_{\Omega} \Delta y_{k+1} v \; dx = 0
+\int_{\Omega} \frac{y_{k+1} - y_k}{h} v \; dx -  \int_{\Omega} \alpha \Delta y_{k+1} v \; dx = 0
 \end{equation}
 Using partial integration on the second integral we get
 \begin{equation}
-\int_{\Omega} \frac{y_{k+1} - y_k}{h} v \; dx - a \int_{\Gamma} \frac{\partial y_{k+1}}{\partial n} v \; ds + a \int_{\Omega} \nabla y_{k+1} \cdot \nabla v \; dx = 0
+\int_{\Omega} \frac{y_{k+1} - y_k}{h} v \; dx - \int_{\Gamma} \alpha \frac{\partial y_{k+1}}{\partial n} v \; ds + \int_{\Omega} \alpha \nabla y_{k+1} \cdot \nabla v \; dx = 0
 \end{equation}
 Substituting the boundary condition \eqref{eq:robin-bc} we obtain
 \begin{equation}
-\int_{\Omega} \frac{y_{k+1} - y_k}{h} v \; dx + a \gamma \int_{\Gamma}  (y_{k+1} - u) v \; ds + a \int_{\Omega} \nabla y_{k+1} \cdot \nabla v \; dx = 0
+\int_{\Omega} \frac{y_{k+1} - y_k}{h} v \; dx +  \int_{\Gamma} \frac{\alpha \gamma}{\beta}  (y_{k+1} - z) v \; ds + \int_{\Omega} \alpha\nabla y_{k+1} \cdot \nabla v \; dx = 0
 \end{equation}
 We can group the terms in the previous equations by terms that depend on $y_{k+1}$, and terms that do not depend on $y_{k+1}$ (an thus only depend on the external data ($y_k$ and $u$):
 \begin{equation}
 \underbrace{
-\int_{\Omega} y_{k+1} v \; dx + h a \gamma \int_{\Gamma} y_{k+1} v \; ds + h a \int_{\Omega} \nabla y_{k+1} \cdot \nabla v \; dx
+\int_{\Omega} y_{k+1} v \; dx + h \int_{\Gamma} \frac{\alpha \gamma}{\beta} y_{k+1} v \; ds + h \int_{\Omega} \alpha \nabla y_{k+1} \cdot \nabla v \; dx
 }_{a(y_{k+1}, v)}
  = 
 \underbrace{ 
-\int_{\Omega} y_k v \; dx + h a \gamma \int_{\Gamma} u v \; ds
+\int_{\Omega} y_k v \; dx + h  \int_{\Gamma} \frac{\alpha \gamma}{\beta} z v \; ds
 }_{F(v)}
 \end{equation}
 
@@ -176,7 +182,7 @@ This kind of optimal control problem (with both a control on the boundary and a 
 \end{align*}
 subject to
 \begin{alignat*}{2}
-y_t - \Delta y + d(x,t,y,v) &= 0 && \text{ in } Q \\
+y_t - \alpha \Delta y + d(x,t,y,v) &= 0 && \text{ in } Q \\
 \partial_n y + b(x,t,y,u) &= 0 && \text{ in } \Sigma \\
 y(\cdot,0) &= y_0 && \text{ on } \Omega \\
 v_a(x,t) \leq v(x,t) &\leq v_b(x,t) &&\text{ in } Q \\
@@ -200,15 +206,15 @@ d(x,t, y(x,t), v(x,t)) &= 0 \\
 d_y(x,t, y(x,t), v(x,t)) &= 0 \\
 d_v(x,t, y(x,t), v(x,t)) &= 0 \\
 \\
-b(x,t, y(x,t), u(x,t)) &= \gamma(x,t) (y(x,t) - u(x,t)) \\
-b_y(x,t, y(x,t), u(x,t)) &= \gamma(x,t) \\
-b_u(x,t, y(x,t), u(x,t)) &= -\gamma(x,t)
+b(x,t, y(x,t), u(x,t)) &= \frac{\gamma(x,t)}{\beta(x,t)} (y(x,t) - z(x,t)) \\
+b_y(x,t, y(x,t), u(x,t)) &= \frac{\gamma(x,t)}{\beta(x,t)} \\
+b_u(x,t, y(x,t), u(x,t)) &= -\frac{\gamma(x,t)}{\beta(x,t)}
 \end{align*}
 
 \section{Derivation of the adjoint system}
 We introduce the adjoint states $p_1$ and $p_2$ to remove the PDE equality constraints. The Lagrangian for the problem is given by
 \begin{align*}
-\mathcal{L}(y,u,v,p_1, p_2) = & J(y,u,v) - \int_{0}^{T} \int_{\Omega} (\frac{\partial y}{\partial t} - \Delta y + d(x,t,y,v)) p_1 \; dx \; dt \\ & - \int_{0}^{T} \int_{\Gamma} (\partial_n y + b(x,t,y,u)) p_2 \; dx \; dt
+\mathcal{L}(y,u,v,p_1, p_2) = & J(y,u,v) - \int_{0}^{T} \int_{\Omega} (\frac{\partial y}{\partial t} - \alpha \Delta y + d(x,t,y,v)) p_1 \; dx \; dt \\ & - \int_{0}^{T} \int_{\Gamma} (\partial_n y + b(x,t,y,u)) p_2 \; dx \; dt
 \end{align*}
 For optimality we need
 \begin{alignat*}{2}
@@ -218,7 +224,7 @@ D_v \mathcal{L}(\bar{y},\bar{u},\bar{v},p_1, p_2) (v - \bar{v}) & \geq 0, &\text
 \end{alignat*}
 In the following we compute $D_y \mathcal{L}$, $D_u \mathcal{L}$ and $D_v \mathcal{L}$. We start with $D_y \mathcal{L}$:
 \begin{align*}
- D_y \mathcal{L}(y, u,v, p_1, p_2) h = & D_y J(y,u,v) h - \int_{0}^{T} \int_{\Omega} (\frac{\partial h}{\partial t} - \Delta h + d_y(x,t,y,v) h) p_1 \; dx \; dt \\ 
+ D_y \mathcal{L}(y, u,v, p_1, p_2) h = & D_y J(y,u,v) h - \int_{0}^{T} \int_{\Omega} (\frac{\partial h}{\partial t} - \alpha \Delta h + d_y(x,t,y,v) h) p_1 \; dx \; dt \\ 
 & - \int_{0}^{T} \int_{\Gamma} (\partial_n h + b_y(x,t,y,u) h) p_2 \; dx \; dt,
 \end{align*} 
 where for $D_y J(y,u,v)$ it holds that
@@ -228,34 +234,34 @@ D_y J(y,u,v) h = \int_{\Omega} \phi_y(x,y) h(T) \; dx + \int_{0}^{T} \int_{\Omeg
 \end{equation}
 First we consider the term
 \begin{align*}
-&- \int_{0}^{T} \int_{\Omega} (\frac{\partial h}{\partial t} - \Delta h + d_y(x,t,y,v) h) p_1 \; dx \; dt \\
-& = - \int_{\Omega} \int_{0}^{T} \frac{\partial h}{\partial t} p_1 \; dx \; dt + \int_{0}^{T} \int_{\Omega} \Delta h p_1 \; dx \; dt - \int_{0}^{T} \int_{\Omega} d_y(x,t,y,v) h p_1 \; dx \; dt.
+&- \int_{0}^{T} \int_{\Omega} (\frac{\partial h}{\partial t} - \alpha \Delta h + d_y(x,t,y,v) h) p_1 \; dx \; dt \\
+& = - \int_{\Omega} \int_{0}^{T} \frac{\partial h}{\partial t} p_1 \; dx \; dt + \int_{0}^{T} \int_{\Omega} \alpha \Delta h p_1 \; dx \; dt - \int_{0}^{T} \int_{\Omega} d_y(x,t,y,v) h p_1 \; dx \; dt.
 \end{align*}
 Using partial integration (in time) for the first term and Green's second formula (in space) for the second term we obtain
 \begin{align*}
-&- \int_{\Omega} \int_{0}^{T} \frac{\partial h}{\partial t} p_1 \; dx \; dt + \int_{0}^{T} \int_{\Omega} \Delta h p_1 \; dx \; dt - \int_{0}^{T} \int_{\Omega} d_y(x,t,y,v) h p_1 \; dx \; dt\\
-= &- \int_{\Omega} \left[h p_1 \right]_0^T \; dx + \int_{\Omega} \int_{0}^{T}   \frac{\partial p_1}{\partial t} h \; dx \; dt + \int_{0}^{T} \int_{\Omega} \Delta p_1 h \; dx \; dt \\ 
-&+ \int_{0}^{T} \int_{\Gamma}
-p_1 \frac{\partial h}{\partial n} \; ds \; dt - \int_{0}^{T} \int_{\Gamma}
+&- \int_{\Omega} \int_{0}^{T} \frac{\partial h}{\partial t} p_1 \; dx \; dt + \alpha \int_{0}^{T} \int_{\Omega}  \Delta h p_1 \; dx \; dt - \int_{0}^{T} \int_{\Omega} d_y(x,t,y,v) h p_1 \; dx \; dt\\
+= &- \int_{\Omega} \left[h p_1 \right]_0^T \; dx + \int_{\Omega} \int_{0}^{T}   \frac{\partial p_1}{\partial t} h \; dx \; dt + \alpha \int_{0}^{T} \int_{\Omega} \Delta p_1 h \; dx \; dt \\ 
+&+ \alpha \int_{0}^{T} \int_{\Gamma}
+p_1 \frac{\partial h}{\partial n} \; ds \; dt - \alpha \int_{0}^{T} \int_{\Gamma}
 \frac{\partial p_1}{\partial n} h \; ds \; dt
  - \int_{0}^{T} \int_{\Omega} d_y(x,t,y,v) p_1 h \; dx \; dt \\
-= &\int_{\Omega} p_1(0) h(0) \; dx - \int_{\Omega} p_1(T) h(T) \; dx +  \int_{0}^{T} \int_{\Omega} \frac{\partial p_1}{\partial t} h \; dx \; dt + \int_{0}^{T} \int_{\Omega} \Delta p_1 h \; dx \; dt \\ 
-&+ \int_{0}^{T} \int_{\Gamma}
-p_1 \frac{\partial h}{\partial n} \; ds \; dt - \int_{0}^{T} \int_{\Gamma}
+= &\int_{\Omega} p_1(0) h(0) \; dx - \int_{\Omega} p_1(T) h(T) \; dx +  \int_{0}^{T} \int_{\Omega} \frac{\partial p_1}{\partial t} h \; dx \; dt + \alpha \int_{0}^{T} \int_{\Omega} \Delta p_1 h \; dx \; dt \\ 
+&+ \alpha \int_{0}^{T} \int_{\Gamma}
+p_1 \frac{\partial h}{\partial n} \; ds \; dt - \alpha \int_{0}^{T} \int_{\Gamma}
 \frac{\partial p_1}{\partial n} h \; ds \; dt
  - \int_{0}^{T} \int_{\Omega} d_y(x,t,y,v) p_1 h \; dx \; dt \\
- \overset{h(0)=0}{=} & - \int_{\Omega} p_1(T) h(T) \; dx + \int_{\Omega} \int_{0}^{T}   \frac{\partial p_1}{\partial t} h \; dx \; dt + \int_{0}^{T} \int_{\Omega} \Delta p_1 h \; dx \; dt \\ 
-&+ \int_{0}^{T} \int_{\Gamma}
-p_1 \frac{\partial h}{\partial n} \; ds \; dt - \int_{0}^{T} \int_{\Gamma} \frac{\partial p_1}{\partial n} h \; ds \; dt
+ \overset{h(0)=0}{=} & - \int_{\Omega} p_1(T) h(T) \; dx + \int_{\Omega} \int_{0}^{T}   \frac{\partial p_1}{\partial t} h \; dx \; dt + \alpha \int_{0}^{T} \int_{\Omega} \Delta p_1 h \; dx \; dt \\ 
+&+ \alpha \int_{0}^{T} \int_{\Gamma}
+p_1 \frac{\partial h}{\partial n} \; ds \; dt - \alpha \int_{0}^{T} \int_{\Gamma} \frac{\partial p_1}{\partial n} h \; ds \; dt
  - \int_{0}^{T} \int_{\Omega} d_y(x,t,y,v) p_1 h \; dx \; dt \\
 \end{align*}
 In the last step we used that $h(0) = 0$. This is explained in [Tr\"oltzsch, p.96] and follows from a substitution $y := y - \bar{y}$ for the state.\\
 By substituting the above equation in the original equation and ordering by integration domains we obtain
 \begin{align*}
 D_y J(y,u,v) h = & \int_{\Omega} (\phi_y(x,y) - p_1(T)) h(T) \; dx \\
-& + \int_{0}^{T} \int_{\Omega} (\frac{\partial p_1}{\partial t} + \Delta p_1 - d_y(x,t,y,v) p_1 + \varphi_y(x,t,y, v)) h \; dx \; dt  \\
-& + \int_{0}^{T} \int_{\Gamma} (p_1 - p_2) \frac{\partial h}{\partial n} \; ds \; dt \\
-& + \int_{0}^{T} \int_{\Gamma} (- \frac{\partial p_1}{\partial n} - b_y(x,t,y,u) p_2 + \psi_y(x,t,y, u))  h \; ds \; dt
+& + \int_{0}^{T} \int_{\Omega} (\frac{\partial p_1}{\partial t} + \alpha \Delta p_1 - d_y(x,t,y,v) p_1 + \varphi_y(x,t,y, v)) h \; dx \; dt  \\
+& + \int_{0}^{T} \int_{\Gamma} (\alpha p_1 - p_2) \frac{\partial h}{\partial n} \; ds \; dt \\
+& + \int_{0}^{T} \int_{\Gamma} (- \alpha \frac{\partial p_1}{\partial n} - b_y(x,t,y,u) p_2 + \psi_y(x,t,y, u))  h \; ds \; dt
 \end{align*}
 Now we make special choices of $h$, first $h \in C_0^\infty(Q)$, then with arbitrary $h(T)$, arbitrary $h|_\Sigma$  and finally with arbitrary $\frac{\partial h}{\partial n}$, and we set $p := p_1$, $p_2 = p$ on $\Sigma$. From this we obtain the following adjoint equation:
 \begin{equation}
