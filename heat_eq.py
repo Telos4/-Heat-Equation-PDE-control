@@ -8,7 +8,8 @@ class HeatEq(object):
         self.verbose = True
         self.mesh = mesh
         self.dt = 0.001
-        self.k = 0.257
+        #self.k = 0.257
+        self.k = 1.0
         self.u = 25.0
         self.gamma_c = 1.0e3
         self.gamma_i = 0.0
@@ -25,7 +26,7 @@ class HeatEq(object):
         self.heat_eq_solver_parameters = {
             "mat_type": "aij",
             "snes_type": "ksponly",
-            "ksp_type": "cg",
+            "ksp_type": "preonly",
             "ksp_atol": 1e-10,
             "pc_type": "lu",
         }
@@ -36,14 +37,20 @@ class HeatEq(object):
 
         self.v = TestFunction(self.S)
 
-        self.N = 15
+        self.N = 100
 
         self.y_ol = []
         for i in range(0, self.N + 1):
             self.y_ol.append(Function(self.S))
             self.y_ol[i].rename("y_ol")
 
+        self.p_ol = []
+        for i in range(0, self.N + 1):
+            self.p_ol.append(Function(self.S))
+            self.p_ol[i].rename("p_ol")
+
         self.outfile_y = File(join(data_dir, "../", "results/", "y_ol.pvd"))
+        self.outfile_p = File(join(data_dir, "../", "results/", "p_ol.pvd"))
 
     def open_loop_solve(self, y0, us):
         # given y(0), u(0), ..., u(N-1) solve the PDE and return the sequence of y(0), ..., y(N)
@@ -57,18 +64,20 @@ class HeatEq(object):
 
         self.outfile_y.write(self.y_ol[0])
 
+        y_out = 20.0
+
         for k in range(0, N):
             v = TestFunction(self.S)
-            u = [0.0, 0.0, us[k], 0.0]
+            z = [y_out, y_out, us[k], y_out]
 
             a = (self.y_ol[k+1] * v + h * ac * inner(grad(self.y_ol[k+1]), grad(v))) * dx
             for i in range(1, 5):
                 a += h * ac * Constant(gamma[i - 1]) * self.y_ol[k+1] * v * ds(i)
-            F = inner(self.y_ol[k], v) * dx
+            a -= inner(self.y_ol[k], v) * dx
             for i in range(1, 5):
-                F += h * ac * Constant(gamma[i - 1]) * Constant(u[i - 1]) * v * ds(i)
+                a -= h * ac * Constant(gamma[i - 1]) * Constant(z[i - 1]) * v * ds(i)
 
-            heat_eq_problem = NonlinearVariationalProblem(a - F, self.y_ol[k+1])
+            heat_eq_problem = NonlinearVariationalProblem(a, self.y_ol[k+1])
 
             heat_eq_solver = NonlinearVariationalSolver(
                 heat_eq_problem,
@@ -78,7 +87,7 @@ class HeatEq(object):
 
             self.outfile_y.write(self.y_ol[k+1])
 
-    def open_loop_solve_adjoint(self):
+    def open_loop_solve_adjoint(self, pT):
         # solve the adjoint PDE
         N = self.N
         h = Constant(self.dt)
@@ -86,30 +95,28 @@ class HeatEq(object):
         ac = Constant(self.k)
 
         # set initial value
-        self.y_ol[0].assign(y0)
-
-        self.outfile_y.write(self.y_ol[0])
+        self.p_ol[0].assign(pT)
 
         for k in range(0, N):
+            print("k = %i" % k)
             v = TestFunction(self.S)
-            u = [0.0, 0.0, us[k], 0.0]
-
-            a = (self.y_ol[k+1] * v + h * ac * inner(grad(self.y_ol[k+1]), grad(v))) * dx
+            a = ((self.p_ol[k+1] - self.p_ol[k] - h * (self.y_ol[N-k])) * v) * dx
+            a +=  h * ac * inner(grad(self.p_ol[k+1]), grad(v)) * dx
             for i in range(1, 5):
-                a += h * ac * Constant(gamma[i - 1]) * self.y_ol[k+1] * v * ds(i)
-            F = inner(self.y_ol[k], v) * dx
-            for i in range(1, 5):
-                F += h * ac * Constant(gamma[i - 1]) * Constant(u[i - 1]) * v * ds(i)
+                a += h * ac * Constant(gamma[i - 1]) * self.p_ol[k+1] * v * ds(i)
 
-            heat_eq_problem = NonlinearVariationalProblem(a - F, self.y_ol[k+1])
+            heat_eq_adj_problem = NonlinearVariationalProblem(a, self.p_ol[k+1])
 
-            heat_eq_solver = NonlinearVariationalSolver(
-                heat_eq_problem,
+            heat_eq_adj_solver = NonlinearVariationalSolver(
+            heat_eq_adj_problem,
                 solver_parameters=self.heat_eq_solver_parameters)
 
-            heat_eq_solver.solve()
+            heat_eq_adj_solver.solve()
 
-            self.outfile_y.write(self.y_ol[k+1])
+        self.p_ol.reverse()
+
+        for k in range(0,N+1):
+            self.outfile_p.write(self.p_ol[k])
 
     def setup_solver(self):
         v = TestFunction(self.S)
@@ -205,10 +212,22 @@ if __name__ == "__main__":
 
     S = heateq.get_fs()
 
-    us = [1.0, 2.0, 3.0, 4.0, 5.0, 10.0, 10.0, 10.0, 10.0, 10.0, 25.0, 25.0, 20.0, 20.0, 20.0]
+    us = []
+    ue = [1.0, 2.0, 3.0, 4.0, 5.0, 10.0, 10.0, 10.0, 10.0, 10.0, 25.0, 25.0, 20.0, 20.0, 20.0]
+    for i in range(0,heateq.N):
+        if i < len(ue):
+            us.append(ue[i])
+        else:
+            us.append(0.0)
     y0 = Function(S)
 
+    print("PDE solve:")
     heateq.open_loop_solve(y0, us)
+
+    pT = Function(S)
+    pT.interpolate(heateq.y_ol[heateq.N])
+    print("Adjoint solve:")
+    heateq.open_loop_solve_adjoint(pT)
 
 
     pass
