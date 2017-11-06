@@ -46,7 +46,7 @@ Consider the following equation
 y_t -  \alpha \Delta y = 0 \text{ on } Q := \Omega \times [0,T]
 \label{eq:pde}
 \end{equation}
-where $y : Q \rightarrow \mathbb{R}$ is the temperature, $\alpha : Q \rightarrow \mathbb{R}$ is the diffusion coefficient. We use the shorthand $y_t = \frac{\partial y}{\partial t}$ to denote the time derivative.
+where $y : Q \rightarrow \mathbb{R}$ is the temperature, $\alpha \in \mathbb{R}$ is the diffusion coefficient. We use the shorthand $y_t = \frac{\partial y}{\partial t}$ to denote the time derivative.
  
 As a domain we consider the unit square. The boundary is partitioned in an isolating boundary $\Gamma_i$ and a control boundary $\Gamma_c$.
 On the control part of the boundary heating/cooling is applied which is described by a Dirichlet condition
@@ -77,6 +77,8 @@ where $\frac{\partial y}{\partial n}$ is the derivative of $y$ in normal directi
 		;
 \end{tikzpicture}
 \end{center}
+For the moment we assume that $u : [0, T] \rightarrow \mathbb{R}$ and $y_{out} : [0,T] \rightarrow \mathbb{R}$ are constant on $\Gamma_c$ and $\Gamma_{out}$ respectively, i.e. that they are independend of space.
+
 TODO: how to get to this boundary condition!
 
 For simplicity we use a single Robin type boundary condition instead
@@ -96,35 +98,32 @@ y_{out} &\text{ on } \Gamma_{out} \\
 u &\text{ on } \Gamma_c \\
 \end{cases}
 $
-we can approximate both types of boundary conditions in a uniform way.
+we can approximate both types of boundary conditions in a uniform way. 
 This will also allow us to extend the setting more easily in the future.
-\section{Weak Form}
-For the weak for of the equation we replace $y_t$ by $\frac{y_{k+1} - y_k}{h}$ and $y$ by $y_{k+1}$ using backward Euler with sampling rate $h > 0$. Multiplying with a test function $v$ and integrating yields
+\section{Numerical simulation of the heat equation}
+We simulate the equation using the finite element method.
+\subsection{Weak form}
+For the weak form we first discretize in time by picking a sampling rate $h > 0$. We define $y_k := y(\cdot, t_0 + h k)$, $y_{out,k} := y_{out}(\cdot, t_0 + h k) $, $u_k := u(t_0 + h k)$, $z_k := z(t_0 + h k)$ for $k \in \{0, 1, \hdots, N\}$. \\
+The initial value $y_0$ is given. To compute the next state $y_{k+1}$ for each $k \in \{0, 1, \hdots, N-1\}$  we replace $y_t$ in equation \eqref{eq:pde} by $\frac{y_{k+1} - y_k}{h}$ and $y$ by $y_{k+1}$ using backward Euler. Multiplying with a test function $v$ and integrating over the domain $\Omega$ yields
 \begin{equation}
-\int_{\Omega} \frac{y_{k+1} - y_k}{h} v \; dx -  \int_{\Omega} \alpha \Delta y_{k+1} v \; dx = 0
+\int_{\Omega} \frac{y_{k+1} - y_k}{h} v \; dx - \alpha \int_{\Omega} \Delta y_{k+1} v \; dx = 0 \text{ for } k \in \{0, 1, \hdots, N-1\}.
 \end{equation}
 Using partial integration on the second integral we get
 \begin{equation}
-\int_{\Omega} \frac{y_{k+1} - y_k}{h} v \; dx - \int_{\Gamma} \alpha \frac{\partial y_{k+1}}{\partial n} v \; ds + \int_{\Omega} \alpha \nabla y_{k+1} \cdot \nabla v \; dx = 0
+\int_{\Omega} \frac{y_{k+1} - y_k}{h} v \; dx - \alpha \int_{\Gamma}  \frac{\partial y_{k+1}}{\partial n} v \; ds + \alpha \int_{\Omega} \nabla y_{k+1} \cdot \nabla v \; dx = 0
 \end{equation}
 Substituting the boundary condition \eqref{eq:robin-bc} we obtain
 \begin{equation}
-\int_{\Omega} \frac{y_{k+1} - y_k}{h} v \; dx +  \int_{\Gamma} \frac{\alpha \gamma}{\beta}  (y_{k+1} - z) v \; ds + \int_{\Omega} \alpha\nabla y_{k+1} \cdot \nabla v \; dx = 0
+\int_{\Omega} \frac{y_{k+1} - y_k}{h} v \; dx + \alpha \int_{\Gamma} \frac{ \gamma}{\beta}  (y_{k+1} - z_k) v \; ds + \alpha \int_{\Omega} \nabla y_{k+1} \cdot \nabla v \; dx = 0
 \end{equation}
-We can group the terms in the previous equations by terms that depend on $y_{k+1}$, and terms that do not depend on $y_{k+1}$ (an thus only depend on the external data ($y_k$ and $u$):
+TODO: Strictly speaking, for backward Euler we may actually have to use $z_{k+1}$ here instead. Think about this!\\
+Substituting the definition of $z_k$ and $\gamma$ on the different parts $\Gamma_{out}$ and $\Gamma_c$ of the boundary we get
 \begin{equation}
-\underbrace{
-\int_{\Omega} y_{k+1} v \; dx + h \int_{\Gamma} \frac{\alpha \gamma}{\beta} y_{k+1} v \; ds + h \int_{\Omega} \alpha \nabla y_{k+1} \cdot \nabla v \; dx
-}_{a(y_{k+1}, v)}
- = 
-\underbrace{ 
-\int_{\Omega} y_k v \; dx + h  \int_{\Gamma} \frac{\alpha \gamma}{\beta} z v \; ds
-}_{F(v)}
+\int_{\Omega} \frac{y_{k+1} - y_k}{h} v \; dx +  \alpha \int_{\Gamma_c} \frac{\gamma_c}{\beta}  (y_{k+1} - u_k) v \; ds  +  \alpha\int_{\Gamma_{out}} \frac{ \gamma_{out}}{\beta}  (y_{k+1} - y_{out,k}) v \; ds + \alpha \int_{\Omega} \nabla y_{k+1} \cdot \nabla v \; dx = 0
 \end{equation}
 
-\section{Implementation in Firedrake}
-To solve the equation $a(y_{k+1}, v) = F(v)$ in Firedrake we first need to define the bilinearform (?) $a$ and the functional $F$.
-
+\subsection{Implementation in Firedrake}
+The above variational equation is solved in Firedrake for each $k \in \{0, 1, \hdots, N-1\}$:
 \begin{python}
 # Definitions 
 S = FunctionSpace(self.mesh, "CG", 1)
@@ -133,7 +132,7 @@ y1 = Function(S)
 y0 = Function(S)
 
 h = Constant(0.001)
-gamma = [0.0, 0.0, 1.0e3, 0.0] # gamma for different parts of the the boundary
+gamma = [0.0, 0.0, 1.0e3, 0.0] # gamma for different parts of the boundary
 ac = 0.2
 u = [0.0, 0.0, 25.0, 0.0]
 \end{python}
@@ -263,16 +262,26 @@ D_y J(y,u,v) h = & \int_{\Omega} (\phi_y(x,y) - p_1(T)) h(T) \; dx \\
 & + \int_{0}^{T} \int_{\Gamma} (\alpha p_1 - p_2) \frac{\partial h}{\partial n} \; ds \; dt \\
 & + \int_{0}^{T} \int_{\Gamma} (- \alpha \frac{\partial p_1}{\partial n} - b_y(x,t,y,u) p_2 + \psi_y(x,t,y, u))  h \; ds \; dt
 \end{align*}
-Now we make special choices of $h$, first $h \in C_0^\infty(Q)$, then with arbitrary $h(T)$, arbitrary $h|_\Sigma$  and finally with arbitrary $\frac{\partial h}{\partial n}$, and we set $p := p_1$, $p_2 = p$ on $\Sigma$. From this we obtain the following adjoint equation:
+Now we make special choices of $h$, first $h \in C_0^\infty(Q)$, then with arbitrary $h(T)$, arbitrary $h|_\Sigma$  and finally with arbitrary $\frac{\partial h}{\partial n}$. From this we obtain the following adjoint equation:
 \begin{equation}
 \begin{alignedat}{2}
--p_t - \Delta p + d_y(x,t,\bar{y}, \bar{v}) p &= \varphi_y(x,t,\bar{y}, \bar{v}) &&\text{ in } Q \\
-\partial_n p + b_y(x,t,\bar{y}, \bar{u}) p &= \psi_y(x,t,\bar{y}, \bar{u}) &&\text{ in } \Sigma \\
+-p_{1,t} - \alpha \Delta p_1 + d_y(x,t,\bar{y}, \bar{v}) p_1 &= \varphi_y(x,t,\bar{y}, \bar{v}) &&\text{ in } Q \\
+\alpha \partial_n p_1 + b_y(x,t,\bar{y}, \bar{u}) p_2 &= \psi_y(x,t,\bar{y}, \bar{u}) &&\text{ in } \Sigma \\
+\alpha p_1 &= p_2 &&\text{ in } \Sigma \\
+p_1(x,T) &= \phi_y(x, \bar{y}(x,T)) &&\text{ in } \Omega
+\label{eq:adjoint-pde-preliminary}
+\end{alignedat}
+\end{equation}
+By setting $p := p_1$, $p_2 = \alpha p$ we obtain:
+\begin{equation}
+\begin{alignedat}{2}
+-p_t - \alpha \Delta p + d_y(x,t,\bar{y}, \bar{v}) p &= \varphi_y(x,t,\bar{y}, \bar{v}) &&\text{ in } Q \\
+\partial_n p + b_y(x,t,\bar{y}, \bar{u}) p &= \frac{1}{\alpha}\psi_y(x,t,\bar{y}, \bar{u}) &&\text{ in } \Sigma \\
 p(x,T) &= \phi_y(x, \bar{y}(x,T)) &&\text{ in } \Omega
 \label{eq:adjoint-pde}
 \end{alignedat}
 \end{equation}
-This can also be found in [Tr\"oltzsch, p.225f].\\
+A similar result (but without the diffusion coefficient $\alpha$) can be found in [Tr\"oltzsch, p.225f].\\
 Finally we also compute $D_u \mathcal{L}$ and $D_v \mathcal{L}$:
 \begin{align*}
 D_u \mathcal{L}(y,u,v, p) h & = D_u J(y,u,v) h - \int_{0}^{T} \int_{\Gamma} b_u(x,t,y,u) p h \; ds \; dt \\
@@ -284,58 +293,90 @@ D_v \mathcal{L}(y,u,v, p) h & = D_v J(y,u,v) h - \int_{0}^{T} \int_{\Omega} d_v(
 \end{align*}
 
 \section{Weak form of the adjoint system}
-To derive the weak form of the adjoint system \eqref{eq:adjoint-pde} we use backward Euler and replace $p_t$ by $\frac{p_{k+1} - p_k}{h}$. We multiply with the test function $v$ and integrate:
+To derive the weak form of the adjoint system \eqref{eq:adjoint-pde} we first note that the equation evolves backward in time. To get a forward equation we use the substitution $\tau := T - t$.
+Define
 \begin{align*}
-- \int_{\Omega} \frac{p_{k+1} - p_k}{h} v \; dx - \int_{\Omega} \Delta p_{k+1} v \; dx + \int_{\Omega} d_y(x,t_{k}, y_k, v_k) p_{k+1} v \; dx = \int_{\Omega} \varphi_y(x,t,y_k, v_k) v \; dx
+\tilde{p}(x,\tau) &:= p(x,T-\tau) = p(x,t) \\
+\tilde{y}(x,\tau) &:= y(x,T-\tau) \\
+\tilde{u}(x,\tau) &:= u(x,T-\tau) \\
+\tilde{v}(x,\tau) &:= v(x,T-\tau)
+\end{align*}
+Noting that $D_{\tau}\tilde{p}(x,\tau) = -D_t p(x,t)$, the adjoint system changes to
+\begin{equation}
+\begin{alignedat}{2}
+\tilde{p}_{\tau} - \alpha \Delta \tilde{p} + d_y(x,T-\tau,\tilde{y}, \tilde{v}) \tilde{p} &= \varphi_y(x,T-\tau,\tilde{y}, \tilde{v}) &&\text{ in } Q \\
+\partial_n \tilde{p} + b_y(x,T-\tau,\tilde{y}, \tilde{u}) \tilde{p} &= \frac{1}{\alpha}\psi_y(x,T-\tau,\tilde{y}, \tilde{u}) &&\text{ in } \Sigma \\
+\tilde{p}(x,0) &= \phi_y(x, \tilde{y}(x,0)) &&\text{ in } \Omega
+\label{eq:adjoint-pde-time-substitution}
+\end{alignedat}
+\end{equation}
+Now the system can be solved again using backward Euler. Replace $\tilde{p}_\tau$ by $\frac{\tilde{p}_{k+1} - \tilde{p}_k}{h}$ and $\tilde{p}$, $\tilde{y}$, $\tilde{u}$ and $\tilde{v}$ by their discrete counterparts.  We multiply with the test function $v$ and integrate:
+\begin{align*}
+\int_{\Omega} \frac{\tilde{p}_{k+1} - \tilde{p}_k}{h} v \; dx - \int_{\Omega} \alpha \Delta \tilde{p}_{k+1} v \; dx + \int_{\Omega} d_y(x,T-\tau_{k}, \tilde{y}_k, \tilde{v}_k) \tilde{p}_{k+1} v \; dx = \int_{\Omega} \varphi_y(x,T-\tau_k,\tilde{y}_k, \tilde{v}_k) v \; dx
 \end{align*}
 Using partial integration on the second integral and inserting the boundary condition yields 
 \begin{align*}
-- \int_{\Omega} \Delta p_{k+1} v \; dx & = - \int_{\Gamma} \frac{\partial p_{k+1}}{\partial n} v ds + \int_{\Omega} \nabla p_{k+1} \nabla v \; dx \\
-& = \int_{\Gamma} b_y(x,t_k, y_k, u_k) p_{k+1} v \; ds - \int_{\Gamma} \psi_y(x,t_k, y_k, u_k) v \; ds + \int_{\Omega} \nabla p_{k+1} \nabla v \; dx
+\int_{\Omega} \alpha \Delta \tilde{p}_{k+1} v \; dx & = - \int_{\Gamma} \alpha \frac{\partial \tilde{p}_{k+1}}{\partial n} v ds + \alpha \int_{\Omega}  \nabla \tilde{p}_{k+1} \nabla v \; dx \\
+& = \int_{\Gamma} \alpha b_y(x,T - \tau_k, \tilde{y}_k, \tilde{u}_k) \tilde{p}_{k+1} v \; ds - \int_{\Gamma} \psi_y(x,T- \tau_k, \tilde{y}_k, \tilde{u}_k) v \; ds \\
+&+ \alpha \int_{\Omega} \nabla \tilde{p}_{k+1} \nabla v \; dx
 \end{align*}
 We insert this in the first equation again and order by integration domain
 \begin{align*}
-\int_{\Omega} (-\frac{p_{k+1} - p_k}{h} + d_y(x,t_{k}, y_k, v_k) p_{k+1} - \varphi_y(x,t,y_k, v_k)) v + \nabla p_{k+1} \nabla v dx & \\
-+ \int_{\Gamma} (b_y(x,t_k, y_k, u_k) p_{k+1} - \psi_y(x,t_k, y_k, u_k) ) v \; ds  & = 0
+\int_{\Omega} (\frac{\tilde{p}_{k+1} - \tilde{p}_k}{h} + d_y(x,T - \tau_{k}, \tilde{y}_k, \tilde{v}_k) \tilde{p}_{k+1} - \varphi_y(x,T - \tau_k,\tilde{y}_k, \tilde{v}_k)) v + \alpha \nabla \tilde{p}_{k+1} \nabla v dx & \\
++ \int_{\Gamma} (\alpha b_y(x,T-\tau_k, \tilde{y}_k, \tilde{u}) \tilde{p}_{k+1} - \psi_y(x,T-\tau_k, \tilde{y}_k, \tilde{u}_k) ) v \; ds  & = 0
 \end{align*}
+After the modified adjoint system was solved we get the original adjoint by substituting back $p(x,t_k) = \tilde{p}(x,\tau_k)$.
 
 \subsection{Adjoint equation for our case}
 In our case the equation simplifies to:
 \begin{align*}
-\int_{\Omega} (-\frac{p_{k+1} - p_k}{h} - (y_k - y_{\Omega,k})) v + \nabla p_{k+1} \nabla v \; dx 
-+ \int_{\Gamma} \gamma p_{k+1} v \; ds  = 0
+\int_{\Omega} (\frac{\tilde{p}_{k+1} - \tilde{p}_k}{h} - (\tilde{y}_k - \tilde{y}_{\Omega,k})) v + \alpha \nabla \tilde{p}_{k+1} \nabla v \; dx 
++ \int_{\Gamma} \frac{\alpha \gamma}{\beta} \tilde{p}_{k+1} v \; ds  = 0
 \end{align*}
 
-Additionally, we have the initial (or rather terminal) condition:
+Additionally, we have the initial condition:
 \begin{alignat*}{2}
-p_{N+1} &= &\phi_y(x, y_{N+1}) = y_{N+1} - y_{\Omega, N+1}
+\tilde{p}_{0} &= &\phi_y(x, \tilde{y}(x,0)) = y_{N} - y_{\Omega, N}
+\end{alignat*}
+
+Rewriting (without the time substitution for $y$) and inserting the different boundaries $\Gamma_{out}$ and $\Gamma_c$:
+\begin{alignat*}{3}
+&&\int_{\Omega} (\frac{\tilde{p}_{k+1} - \tilde{p}_k}{h} - (y_{N-k} - y_{\Omega,N-k})) v + \alpha \nabla \tilde{p}_{k+1} \nabla v \; dx && \\
+&&+ \alpha \int_{\Gamma_{out}} \frac{\gamma_{out}}{\beta} \tilde{p}_{k+1} v \; ds + \alpha \int_{\Gamma_{c}} \frac{\gamma_{c}}{\beta} \tilde{p}_{k+1} v \; ds  = 0, && \\
+&& && \text{ for } k \in \{0, \hdots, N-1\}.
 \end{alignat*}
 
 \section{Solution by Projected Gradient Method}
 Let $N \in \mathbb{N}$ be the MPC horizon and let $u^n := (u_0^n, u_1^n, \hdots, u_{N-1}^n)$, $v^n := (v_0^n, v_1^n, \hdots, v_{N-1}^n)$ be the iterates of the optimization algorithm. \\ 
 The gradient of the reduced cost functional $f(v,u) = J(y(v,u), v, u)$ is given by
 \begin{align*}
-f'(v^n, u^n)(v,u) = & \int \int_Q (\varphi_v(x,t, y^n, v^n) - d_v(x,t,y,v) p^n) \; v \; dx \; dt \\
-& + \int \int_{\Sigma} (\psi_u(x,t,y^n, u^n) - b_u(x,t,y,u) p^n) \; u \; ds \; dt
+f'(v^n, u^n)(v,u) = & \int \int_Q (\varphi_v(x,t, y^n, v^n) - d_v(x,t,y^n,v^n) p^n) \; v \; dx \; dt \\
+& + \int \int_{\Sigma} (\psi_u(x,t,y^n, u^n) - b_u(x,t,y^n,u^n) p^n) \; u \; ds \; dt
 \end{align*}
 This can also be found in [Tr\"oltzsch, p. 243f], for the special case of $d(x,t,y,v) = v$, $b(x,t,y,u) = u$.
 
 Solution algorithm:\\
 \begin{enumerate}
 \item Solve forward system for given $(u^n, v^n)$ $\rightsquigarrow y_n$ \\
-\item Solve adjoint system $\rightsquigarrow p_n$ \\
+\item Solve adjoint system $\rightsquigarrow p^n$ \\
 \item Descent directions
 \begin{align*}
-&h_n := -(\varphi_v(\cdot, y_n, v_n) - d_v(\cdot,y_n,v_n) p_n) \\ 
-&r_n := -(\psi_u(\cdot, y_n |_{\Sigma}, u_n) - b_u(\cdot,y_n,u_n) p_n |_{\Sigma})
+&h^n := -(\varphi_v(\cdot, y^n, v^n) - d_v(\cdot,y^n,v^n) p^n) \\ 
+&r^n := -(\psi_u(\cdot, y^n |_{\Sigma}, u^n) - b_u(\cdot,y^n,u^n) p^n |_{\Sigma})
 \end{align*}
-\item Compute step size $\rightsquigarrow s_n$
-(e.g. use $\min_{s > 0} f(\mathbb{P}_V(v_n+s h_n), \mathbb{P}_U(u_n + s r_n)).$
+\item Compute step size $\rightsquigarrow s^n$
+(e.g. use $\min_{s > 0} f(\mathbb{P}_V(v^n+s h^n), \mathbb{P}_U(u^n + s r^n)).$
 \item New iterates:
 \begin{equation}
-(v_{n+1}, u_{n+1}) := (\mathbb{P}_V(v_n + s_n h_n), \mathbb{P}_U(u_n + s_n r_n))
+(v^{n+1}, u^{n+1}) := (\mathbb{P}_V(v^n + s^n h^n), \mathbb{P}_U(u^n + s^n r^n))
 \end{equation}
 \end{enumerate}
+
+\subsection{Gradient in our case}
+\begin{align*}
+f'(v^n, u^n)(v,u) = & \int \int_Q (\sigma v^n) \; v \; dx \; dt \\
+& + \int \int_{\Sigma} (\lambda u^n) + \frac{\gamma}{\beta} p^n) \; u \; ds \; dt
+\end{align*}
 
 \section{Solver Options/Preconditioning}
 \newpage
