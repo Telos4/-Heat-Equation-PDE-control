@@ -3,6 +3,8 @@ from firedrake import *
 from os.path import abspath, basename, dirname, join
 import numpy as np
 
+import scipy.optimize as opt
+
 import time
 
 from firedrake_adjoint import *
@@ -19,7 +21,7 @@ class HeatEq(object):
         self.S = FunctionSpace(self.mesh, "CG", 1)
 
         self.y_omega = Function(self.S)
-        self.y_omega.assign(0.0)
+        self.y_omega.assign(3.0)
         self.lmda = 1.0e-3
 
         self.heat_eq_solver_parameters = {
@@ -44,7 +46,7 @@ class HeatEq(object):
 
         self.v = TestFunction(self.S)
 
-        self.N = 2
+        self.N = 10
 
         self.y_ol = []
         for i in range(0, self.N + 1):
@@ -61,10 +63,10 @@ class HeatEq(object):
         self.outfile_u = File(join(data_dir, "../", "results/", "u_ol.pvd"))
 
 
-    def open_loop_solve(self, y0, us,gradient=False, output=False):
+    def open_loop_solve(self, y0, us, gradient=False, output=False):
         # given y(0), u(0), ..., u(N-1) solve the PDE and return the sequence of y(0), ..., y(N)
-        N = 2           #self.N
-        h = 0.1         #Constant(self.dt)
+        N = len(us)           #self.N
+        h = 0.01         #Constant(self.dt)
         alpha = 10.0e3  #Constant(self.alpha)
         beta = 10.0e3   #Constant(self.beta)
 
@@ -81,7 +83,6 @@ class HeatEq(object):
 
 
         for k in range(0, N):
-            #ufs[k].interpolate(Expression(us[k]))
             a = ((y_next - y)/h * v + inner(grad(y_next), grad(v))) * dx
             for i in range(1, 5):
                 a -= (beta * uss[k] - alpha * y_next) * v * ds(i)
@@ -112,34 +113,11 @@ class HeatEq(object):
         gradJ = np.zeros(N)
         if gradient==True:
             uc = [ConstantControl(uss[k]) for k in range(0,N)]
-            J = Functional(inner(y, y) * dx * dt[FINISH_TIME])
-            Jhat = ReducedFunctional(J, uc)
+            J = Functional(inner(y-self.y_omega, y-self.y_omega) * dx * dt[FINISH_TIME])
 
-            #u_opt = minimize(Jhat, options = {'disp': True})
-
-            #print("u_opt = {}".format(u_opt))
-            #dJdic = compute_gradient(J, Control(y))
-
-            # param = Control(uss[1])
-            # for (solution, variable) in compute_adjoint(J, forget=False):
-            #     #outfile_adjoint.write(variable)
-            #     #outfile = File(join(data_dir, "../", "results/", "test.pvd"))
-            #     print("var: " + str(variable) + ", sol: " + str(solution))
-            #     outfile = File(join(data_dir, "../", "results/", str(solution)+".pvd"))
-            #
-            #     outfile.write(solution)
-            #
-            #     print("norm: " + str(norm(solution-y_next)))
             gr = compute_gradient(J, uc)
-            gradJ = [float(g) for g in gr]
+            gradJ = np.array([float(g) for g in gr])
 
-            # for k in range(0, N):
-            #     forget = not (k < N-1)
-            #     dJ = compute_gradient(J, Control(uss[k]), forget=forget)
-            #     gradJ[k] = dJ._ufl_evaluate_scalar_()
-
-        #for k in range(0,N+1):
-        #    self.outfile_y.write(self.y_ol[k])
         return y, gradJ
 
     def open_loop_solve_adjoint(self, pT):
@@ -224,7 +202,20 @@ class HeatEq(object):
 
         return J
 
+def f(u, y0):
+    start = time.time()
+    y, gradJ = heateq.open_loop_solve(y0, u, gradient=True, output=False)
+    end = time.time()
+    #print("elapsed time: {}".format(end - start))
 
+    J = heateq.eval_J(y, u)
+
+    adj_reset()
+
+    return J, gradJ
+
+def cb(u):
+    print("u = " + str(u))
 
 if __name__ == "__main__":
     cwd = abspath(dirname(__file__))
@@ -233,58 +224,28 @@ if __name__ == "__main__":
     mesh = UnitSquareMesh(10,10)
 
     heateq = HeatEq(mesh)
+    heateq.N = 5    # MPC horizon length
 
-    heateq.dt = 0.005
-
-    S = heateq.S
-
-    us = []
-    ue = [1.0, 2.0, 3.0, 4.0, 5.0, 10.0, 10.0, 10.0, 10.0, 10.0, 25.0, 25.0, 20.0, 20.0, 20.0]
-    for i in range(0,heateq.N):
-        if i < len(ue):
-            us.append(ue[i])
-        else:
-            us.append(0.0)
-    y0 = Function(S)
+    # set initial condition
+    y0 = Function(heateq.S)
     y0.assign(1.0)
 
-    u_n = np.array([0.0 for i in range(0, heateq.N)])
+    # initial guess for controls
+    u = np.array([1.0 for i in range(0, heateq.N)])
 
-    parameters["adjoint"]["test_derivative"] = True
+    # number of simulation time steps
+    L = 20
 
-    for i in range(0,300):
+    # simulation loop
+    for k in range(0, L):
+        # solve MPC open loop problem
+        res = opt.minimize(f, x0=u, args=(y0), method='BFGS', jac=True, callback=cb)
 
-        start = time.time()
-        parameters["adjoint"]["stop_annotating"] = False
-        # 1. solve PDE
-        y, gradJ = heateq.open_loop_solve(y0, u_n, gradient=True, output=False)
-        end = time.time()
-        print("elapsed time: {}".format(end-start))
+        print(res)
 
-        J = heateq.eval_J(y, u_n)
-        print("J(y,u) = {}".format(J))
-        print("dJ        = {}".format(gradJ))
+        # apply solution to close loop system
+        y0, _ = heateq.open_loop_solve(y0, np.array([res.x[0]]), gradient=False, output=True)
 
-        parameters["adjoint"]["stop_annotating"] = True
-
-        # 2. solve Adjoint
-        #pT = Function(S)
-        #pT.interpolate(heateq.y_ol[heateq.N] - heateq.y_omega)
-
-        #heateq.open_loop_solve_adjoint(pT)
-
-        # 3. compute descent direction
-        #r_n = heateq.compute_gradient(u_n)
-
-        # 3.1 compute descent direction using finite differences
-        grad_f = heateq.compute_gradient_fd(y0, u_n)
-
-        adj_reset()
-
-        print("dJ (num.) = {}".format(grad_f))
-        #print("r_n    = {}".format(r_n))
-
-        #u_n = u_n + 0.1 * r_n
-        u_n = u_n - 0.1 * grad_f
-
-        print("u_n" + str(u_n))
+        #u = res.x
+        u = np.roll(res.x,-1)
+        u[-1] = u[-2]
