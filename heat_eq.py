@@ -73,18 +73,18 @@ class HeatEq(object):
         y = Function(S)
         y_next = Function(S)
         v = TestFunction(S)
-        ufs = [Function(S) for k in range(0,N)]
+        #ufs = [Function(S) for k in range(0,N)]
 
         y = y0.copy(deepcopy=True)
 
-        #uss = [Constant(u) for u in us]
+        uss = [Constant(u) for u in us]
 
 
         for k in range(0, N):
-            ufs[k].interpolate(Expression(us[k]))
+            #ufs[k].interpolate(Expression(us[k]))
             a = ((y_next - y)/h * v + inner(grad(y_next), grad(v))) * dx
             for i in range(1, 5):
-                a -= (beta * ufs[k] - alpha * y_next) * v * ds(i)
+                a -= (beta * uss[k] - alpha * y_next) * v * ds(i)
             heat_eq_problem = NonlinearVariationalProblem(a, y_next)
 
             heat_eq_solver_parameters = {
@@ -111,13 +111,13 @@ class HeatEq(object):
 
         gradJ = np.zeros(N)
         if gradient==True:
-            uc = [FunctionControl(ufs[k]) for k in range(0,N)]
+            uc = [ConstantControl(uss[k]) for k in range(0,N)]
             J = Functional(inner(y, y) * dx * dt[FINISH_TIME])
             Jhat = ReducedFunctional(J, uc)
 
-            u_opt = minimize(Jhat, options = {'disp': True})
+            #u_opt = minimize(Jhat, options = {'disp': True})
 
-            print("u_opt = {}".format(u_opt))
+            #print("u_opt = {}".format(u_opt))
             #dJdic = compute_gradient(J, Control(y))
 
             # param = Control(uss[1])
@@ -130,7 +130,8 @@ class HeatEq(object):
             #     outfile.write(solution)
             #
             #     print("norm: " + str(norm(solution-y_next)))
-
+            gr = compute_gradient(J, uc)
+            gradJ = [float(g) for g in gr]
 
             # for k in range(0, N):
             #     forget = not (k < N-1)
@@ -277,6 +278,8 @@ if __name__ == "__main__":
 
         # 3.1 compute descent direction using finite differences
         grad_f = heateq.compute_gradient_fd(y0, u_n)
+
+        adj_reset()
 
         print("dJ (num.) = {}".format(grad_f))
         #print("r_n    = {}".format(r_n))
