@@ -21,7 +21,7 @@ class HeatEq(object):
         self.S = FunctionSpace(self.mesh, "CG", 1)
 
         self.y_omega = Function(self.S)
-        self.y_omega.assign(3.0)
+        self.y_omega.assign(0.0)
         self.lmda = 1.0e-3
 
         self.heat_eq_solver_parameters = {
@@ -53,6 +53,11 @@ class HeatEq(object):
             self.y_ol.append(Function(self.S))
             self.y_ol[i].rename("y_ol")
 
+        self.p_ol_fd = []   # adjoint open loop as computed by firedrake adjoint
+        for i in range(0, self.N + 1):
+            self.p_ol_fd.append(Function(self.S))
+            self.p_ol_fd[i].rename("p_ol_fd")
+
         self.p_ol = []
         for i in range(0, self.N + 1):
             self.p_ol.append(Function(self.S))
@@ -72,7 +77,7 @@ class HeatEq(object):
 
         # set initial value
         S = self.S
-        y_next = Function(S)
+
         v = TestFunction(S)
 
         y = y0.copy(deepcopy=True)
@@ -81,10 +86,14 @@ class HeatEq(object):
 
 
         for k in range(0, N):
-            a = ((y_next - y)/h * v + inner(grad(y_next), grad(v))) * dx
-            for i in range(1, 5):
-                a -= (beta * uss[k] - alpha * y_next) * v * ds(i)
-            heat_eq_problem = NonlinearVariationalProblem(a, y_next)
+            y_next = TrialFunction(S)
+            a = (y_next/h * v + inner(grad(y_next), grad(v))) * dx + alpha * y_next * v * ds(1)
+            b = y/h * v * dx + beta * uss[k] * v * ds(1)
+
+            M = assemble(a) # assemble form to get (unassembled) matrix
+            M.assemble()    # call .assemble() on matrix to actually get the matrix
+
+            y_next = Function(S)
 
             heat_eq_solver_parameters = {
                 "mat_type": "aij",
@@ -94,11 +103,19 @@ class HeatEq(object):
                 "pc_type": "lu",
             }
 
-            heat_eq_solver = NonlinearVariationalSolver(
-                heat_eq_problem,
-                solver_parameters=heat_eq_solver_parameters)
+            solve(a == b, y_next, solver_parameters=heat_eq_solver_parameters)
+            #a = ((y_next - y)/h * v + inner(grad(y_next), grad(v))) * dx
+            #for i in range(1, 3):
+            #    a -= (beta * uss[k] - alpha * y_next) * v * ds(i)
+            # heat_eq_problem = NonlinearVariationalProblem(a == b, y_next)
+            #
 
-            heat_eq_solver.solve()
+            #
+            # heat_eq_solver = NonlinearVariationalSolver(
+            #     heat_eq_problem,
+            #     solver_parameters=heat_eq_solver_parameters)
+
+            #heat_eq_solver.solve()
 
             if output == True:
                 self.outfile_y.write(y)
@@ -113,12 +130,19 @@ class HeatEq(object):
             uc = [ConstantControl(uss[k]) for k in range(0,N)]
             J = Functional(inner(y-self.y_omega, y-self.y_omega) * dx * dt[FINISH_TIME])
 
-            gr = compute_gradient(J, uc)
+            gr = compute_gradient(J, uc, forget=False)
             gradJ = np.array([float(g) for g in gr])
+
+            k = 0
+            for (solution, variable) in compute_adjoint(J):
+                if str(y) in str(variable):
+                    print(str(variable))
+                    self.p_ol_fd[k].assign(solution)
+                    k += 1
 
         return y, gradJ
 
-    def open_loop_solve_adjoint(self, pT):
+    def open_loop_solve_adjoint(self, ys, yomegas, pT):
         # solve the adjoint PDE
         N = self.N
         h = Constant(self.dt)
@@ -129,7 +153,7 @@ class HeatEq(object):
         for k in range(0, N):
             v = TestFunction(self.S)
             a = ((self.p_ol[k+1] - self.p_ol[k])/h * v + inner(grad(self.p_ol[k+1]), grad(v))) * dx
-            for i in range(1, 5):
+            for i in range(1, 3):
                 a += Constant(self.alpha) * self.p_ol[k+1] * v * ds(i)
 
             heat_eq_adj_problem = NonlinearVariationalProblem(a, self.p_ol[k+1])
@@ -181,7 +205,6 @@ class HeatEq(object):
 
         return grad_f
 
-
     def eval_J(self,y, u_n):
         norm_y = 0.0
         norm_u = 0.0
@@ -219,7 +242,7 @@ if __name__ == "__main__":
     cwd = abspath(dirname(__file__))
     data_dir = join(cwd, "data")
 
-    mesh = UnitSquareMesh(10,10)
+    mesh = UnitIntervalMesh(10)
 
     heateq = HeatEq(mesh)
     heateq.N = 5    # MPC horizon length
@@ -229,21 +252,26 @@ if __name__ == "__main__":
     y0.assign(1.0)
 
     # initial guess for controls
-    u = np.array([1.0 for i in range(0, heateq.N)])
+    u = np.array([0.9 for i in range(0, heateq.N)])
 
     # number of simulation time steps
     L = 20
 
-    # simulation loop
-    for k in range(0, L):
-        # solve MPC open loop problem
-        res = opt.minimize(f, x0=u, args=(y0), method='BFGS', jac=True, callback=cb)
+    y0, _ = heateq.open_loop_solve(y0, u, gradient=True, output=True)
 
-        print(res)
 
-        # apply solution to close loop system
-        y0, _ = heateq.open_loop_solve(y0, np.array([res.x[0]]), gradient=False, output=True)
+    # # simulation loop
+    # for k in range(0, L):
+    #     # solve MPC open loop problem
+    #     res = opt.minimize(f, x0=u, args=(y0), method='BFGS', jac=True, callback=cb)
+    #
+    #     print(res)
+    #
+    #     # apply solution to close loop system
+    #     y0, _ = heateq.open_loop_solve(y0, np.array([res.x[0]]), gradient=False, output=True)
+    #
+    #     #u = res.x
+    #     u = np.roll(res.x,-1)
+    #     u[-1] = u[-2]
 
-        #u = res.x
-        u = np.roll(res.x,-1)
-        u[-1] = u[-2]
+    pass
