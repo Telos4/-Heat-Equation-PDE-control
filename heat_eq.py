@@ -29,11 +29,10 @@ alpha = Constant(0.1)
 beta = Constant(1.0)
 gamma = Constant(1.0e6)
 
+U = FunctionSpace(mesh, "Lagrange", 1)
+
 def solve_forward_split(us,y_outs):
     """ Solve forward equation of split system """
-
-    # Define function space
-    U = FunctionSpace(mesh, "Lagrange", 1)
 
     phi = TestFunction(U)
     # y_hat
@@ -92,16 +91,22 @@ def solve_forward_split(us,y_outs):
     return y, y_hats, y_tildes
 
 def solve_adjoint_split(y_hats, y_tildes):
-    # Define function space
-    U = FunctionSpace(mesh, "Lagrange", 1)
+
+    y_T = Function(U)
+    y_T.interpolate(Expression("0.5", degree=1))
+    sigma_T = Constant(1.0)
+    y_Q = Function(U)
+    y_Q.interpolate(Expression("0.5", degree=1))
+    sigma_Q = Constant(1.0)
+
+    y_hat_T = Function(U)
+    y_hat_T.assign(y_T - y_hats[-1])
+    y_hat_Q = Function(U)
 
     phi = TestFunction(U)
-    # y_hat
-    p_hat_k1 = Function(U)  # function for state at time k+1 (initial value)
-    p_hat_k0 = TrialFunction(U)     # function for state at time k   (this is what we solve for)
-    #p_hat_k0.interpolate(Expression("0.5", degree=1))  # initial value for forward solve
-    p_hat_k1.assign(y_hats[-1])
-    y_hat_k1 = Function(U)
+    q_hat_k0 = Function(U)          # function for state at time k+1 (initial value)
+    q_hat_k1 = TrialFunction(U)     # function for state at time k   (this is what we solve for)
+    q_hat_k0.assign(sigma_T * y_hat_T)     # initial value for adjoint
 
     # y_tilde
     #y_tilde_k1 = TrialFunction(U)  #
@@ -112,47 +117,48 @@ def solve_adjoint_split(y_hats, y_tildes):
     #u = Constant(1.0)
 
     # variational formulations
-    lhs_hat = -(p_hat_k1 / k * phi) * dx + alpha * inner(grad(phi), grad(y_hat_k1)) * dx + gamma * phi * y_hat_k1 * ds
-    rhs_hat = (y_hat_k0 / k * phi) * dx + gamma * y_out * phi * ds(0)
+    lhs_hat = (q_hat_k1 / k * phi) * dx + alpha * inner(grad(phi), grad(q_hat_k1)) * dx + gamma * phi * q_hat_k1 * ds
+    rhs_hat = (q_hat_k0 / k * phi) * dx + sigma_Q * y_hat_Q * phi * dx
 
     #lhs_tilde = (y_tilde_k1 / k * phi) * dx + alpha * inner(grad(phi),
     #                                                        grad(y_tilde_k1)) * dx + gamma * phi * y_tilde_k1 * ds
     #rhs_tilde = (y_tilde_k0 / k * phi) * dx + gamma * u * phi * ds(1)
 
     # functions for storing the solution
-    y_hat = Function(U, name="y_hat")
-    y_tilde = Function(U, name="y_tilde")
-    y = Function(U, name="y")
+    q_hat = Function(U, name="q_hat")
+    #y_tilde = Function(U, name="y_tilde")
+    #y = Function(U, name="y")
 
     i = 0
 
     # lists for storing the open loop
-    y_hats = [Function(U, name="y_hat_" + str(j)) for j in xrange(0, L + 1)]
-    y_tildes = [Function(U, name="y_tilde_" + str(j)) for j in xrange(0, L + 1)]
+    q_hats = [Function(U, name="q_hat_" + str(j)) for j in xrange(0, L + 1)]
+    #y_tildes = [Function(U, name="y_tilde_" + str(j)) for j in xrange(0, L + 1)]
 
-    y_hats[0].assign(y_hat_k0)
-    y_tildes[0].assign(y_tilde_k0)
+    q_hats[0].assign(q_hat_k0)
+    #y_tildes[0].assign(y_tilde_k0)
 
     while i < L:
-        plot(y_hat)
-        plot(y_tilde)
+        plot(q_hat)
+        #plot(y_tilde)
 
-        y_out.assign(y_outs[i])
-        u.assign(us[i])
+        #y_out.assign(y_outs[i])
+        #u.assign(us[i])
+        y_hat_Q.assign(y_Q - y_hats[-(1+i)]) # take i-th value from behind
 
-        solve(lhs_hat == rhs_hat, y_hat)
-        solve(lhs_tilde == rhs_tilde, y_tilde)
-        y.assign(y_hat + y_tilde)
+        solve(lhs_hat == rhs_hat, q_hat)
+        #solve(lhs_tilde == rhs_tilde, y_tilde)
+        #y.assign(y_hat + y_tilde)
 
-        y_hat_k0.assign(y_hat)
-        y_tilde_k0.assign(y_tilde)
+        q_hat_k0.assign(q_hat)
+        #y_tilde_k0.assign(y_tilde)
 
         i += 1
 
-        y_hats[i].assign(y_hat)
-        y_tildes[i].assign(y_tilde)
+        q_hats[i].assign(q_hat)
+        #y_tildes[i].assign(y_tilde)
 
-    return y, y_hats, y_tildes
+    return q_hats #y, y_hats, y_tildes
 
 
 def solve_forward(us, y_outs, record=False):
@@ -304,12 +310,19 @@ def eval_J(self, u_n):
 if __name__ == "__main__":
     L = 10
 
-    us = np.array([0.5 - 1.0/3.0 * sin(i/10.0) for i in range(0,L)])
-    y_outs = np.array([0.5 + 1.0/3.0 * sin(i/10.0) for i in range(0,L)])
+    #us = np.array([0.5 - 1.0/3.0 * sin(i/10.0) for i in range(0,L)])
+    #y_outs = np.array([0.5 + 1.0/3.0 * sin(i/10.0) for i in range(0,L)])
+    us = np.array([0.5 for i in range(0, L)])
+    y_outs = np.array([0.5 for i in range(0, L)])
 
     y_split, y_hats, y_tildes = solve_forward_split(us, y_outs)
-    y = solve_forward(us, y_outs)
-    t = y_split.vector().array() - y.vector().array()
+
+    solve_adjoint_split(y_hats, y_tildes)
+
+    #y = solve_forward(us, y_outs)
+
+
+    #t = y_split.vector().array() - y.vector().array()
 
     print("error = {}".format(np.linalg.norm(t)))
 
