@@ -158,6 +158,36 @@ def solve_adjoint_split(y_hats, y_tildes):
         q_hats[i].assign(q_hat)
         #y_tildes[i].assign(y_tilde)
 
+    # test if adjoint is correct by solving the adjoint system forward in time with the initial value q_hat
+    p_hat_k0 = Function(U)  # function for state at time k+1 (initial value)
+    p_hat_k1 = TrialFunction(U)  # function for state at time k   (this is what we solve for)
+    p_hat_k0.assign(q_hat)  # initial value for adjoint
+
+    lhs_hat = (p_hat_k1 / k * phi) * dx + alpha * inner(grad(phi), grad(p_hat_k1)) * dx + gamma * phi * p_hat_k1 * ds
+    rhs_hat = (p_hat_k0 / k * phi) * dx + sigma_Q * y_hat_Q * phi * dx
+
+    p_hat = Function(U, name="p_hat")
+
+    i = 0
+
+    # lists for storing the open loop
+    p_hats = [Function(U, name="p_hat_" + str(j)) for j in xrange(0, L + 1)]
+    p_hats[0].assign(p_hat_k0)
+
+    while i < L:
+        plot(p_hat)
+        y_hat_Q.assign(y_Q - y_hats[i]) # take i-th value
+
+        solve(lhs_hat == rhs_hat, p_hat)
+
+        p_hat_k0.assign(p_hat)
+
+        i += 1
+
+        p_hats[i].assign(p_hat)
+
+
+
     return q_hats #y, y_hats, y_tildes
 
 
