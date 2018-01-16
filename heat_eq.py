@@ -14,15 +14,12 @@ right = CompiledSubDomain("near(x[0], 1.)")
 
 # Label boundaries, required for the objective
 boundary_parts = MeshFunction("size_t", mesh, mesh.topology().dim() - 1)
-left.mark(boundary_parts, 0)    # boundary part where control is applied
-right.mark(boundary_parts, 1)   # boundary part for outside temperature
+left.mark(boundary_parts, 0)    # boundary part for outside temperature
+right.mark(boundary_parts, 1)   # boundary part where control is applied
 ds = Measure("ds", subdomain_data=boundary_parts)
 
 # Choose a time step size
-k = Constant(1e-2)
-
-# MPC horizon length
-N = 10
+k = Constant(1e-3)
 
 # define constants
 alpha = Constant(0.1)
@@ -30,6 +27,18 @@ beta = Constant(1.0)
 gamma = Constant(1.0e6)
 
 U = FunctionSpace(mesh, "Lagrange", 1)
+
+# data from objective:
+# min_(y,u)  \sigma_Q/2 \int_{0,T} \int_{\Omega} |y - y_Q|_L2 dx dt + \sigma_T/2 \int_{\Omega} |y - y_T| dx
+#   + sigma_u/2 \int_{0,T} |u - u_ref|^2 dt
+y_T = Function(U)
+y_T.interpolate(Expression("0.5", degree=1))
+sigma_T = 0.0
+y_Q = Function(U)
+y_Q.interpolate(Expression("0.5", degree=1))
+sigma_Q = 1.0
+sigma_u = 1.0
+u_ref = 0.5
 
 def solve_forward_split(us,y_outs):
     """ Solve forward equation of split system """
@@ -65,130 +74,101 @@ def solve_forward_split(us,y_outs):
     # lists for storing the open loop
     y_hats = [Function(U, name="y_hat_" + str(j)) for j in xrange(0,L+1)]
     y_tildes = [Function(U, name="y_tilde_" + str(j)) for j in xrange(0,L+1)]
+    ys = [Function(U, name="ys_" + str(j)) for j in xrange(0,L+1)]
 
     y_hats[0].assign(y_hat_k0)
     y_tildes[0].assign(y_tilde_k0)
+    ys[0].assign(y_hat_k0 + y_tilde_k0)
 
     while i < L:
-        plot(y_hat)
-        plot(y_tilde)
+        #plot(y_hat)
+        #plot(y_tilde)
 
         y_out.assign(y_outs[i])
         u.assign(us[i])
 
         solve(lhs_hat == rhs_hat, y_hat)
         solve(lhs_tilde == rhs_tilde, y_tilde)
-        y.assign(y_hat + y_tilde)
 
         y_hat_k0.assign(y_hat)
         y_tilde_k0.assign(y_tilde)
+        y.assign(y_hat + y_tilde)
 
         i += 1
 
         y_hats[i].assign(y_hat)
         y_tildes[i].assign(y_tilde)
+        ys[i].assign(y)
 
-    return y, y_hats, y_tildes
+    return ys, y_hats, y_tildes
 
 def solve_adjoint_split(y_hats, y_tildes):
-
-    y_T = Function(U)
-    y_T.interpolate(Expression("0.5", degree=1))
-    sigma_T = Constant(1.0)
-    y_Q = Function(U)
-    y_Q.interpolate(Expression("0.5", degree=1))
-    sigma_Q = Constant(1.0)
-
     y_hat_T = Function(U)
     y_hat_T.assign(y_T - y_hats[-1])
     y_hat_Q = Function(U)
 
+    y_tilde_T = Function(U)
+    y_tilde_T.assign(y_tildes[-1])
+    y_tilde_Q = Function(U)
+
     phi = TestFunction(U)
     q_hat_k0 = Function(U)          # function for state at time k+1 (initial value)
     q_hat_k1 = TrialFunction(U)     # function for state at time k   (this is what we solve for)
-    q_hat_k0.assign(sigma_T * y_hat_T)     # initial value for adjoint
+    q_hat_k0.assign(Constant(sigma_T) * y_hat_T)     # initial value for adjoint
 
-    # y_tilde
-    #y_tilde_k1 = TrialFunction(U)  #
-    #y_tilde_k0 = Function(U)  #
-    #y_tilde_k0.interpolate(Expression("0.0", degree=1))  # initial value for forward solve
-
-    #y_out = Constant(1.0)
-    #u = Constant(1.0)
+    q_tilde_k0 = Function(U)
+    q_tilde_k1 = TrialFunction(U)
+    q_tilde_k0.assign(Constant(-sigma_T) * y_tilde_T)  # initial value for adjoint
 
     # variational formulations
     lhs_hat = (q_hat_k1 / k * phi) * dx + alpha * inner(grad(phi), grad(q_hat_k1)) * dx + gamma * phi * q_hat_k1 * ds
     rhs_hat = (q_hat_k0 / k * phi) * dx + sigma_Q * y_hat_Q * phi * dx
 
-    #lhs_tilde = (y_tilde_k1 / k * phi) * dx + alpha * inner(grad(phi),
-    #                                                        grad(y_tilde_k1)) * dx + gamma * phi * y_tilde_k1 * ds
-    #rhs_tilde = (y_tilde_k0 / k * phi) * dx + gamma * u * phi * ds(1)
+    lhs_tilde = (q_tilde_k1 / k * phi) * dx + alpha * inner(grad(phi), grad(q_tilde_k1)) * dx + gamma * phi * q_tilde_k1 * ds
+    rhs_tilde = (q_tilde_k0 / k * phi) * dx - sigma_Q * y_tilde_Q * phi * dx
 
     # functions for storing the solution
     q_hat = Function(U, name="q_hat")
-    #y_tilde = Function(U, name="y_tilde")
-    #y = Function(U, name="y")
+    q_tilde = Function(U, name="q_tilde")
+    q = Function(U, name="q")
 
     i = 0
 
     # lists for storing the open loop
     q_hats = [Function(U, name="q_hat_" + str(j)) for j in xrange(0, L + 1)]
-    #y_tildes = [Function(U, name="y_tilde_" + str(j)) for j in xrange(0, L + 1)]
+    q_tildes = [Function(U, name="q_tilde_" + str(j)) for j in xrange(0, L + 1)]
 
     q_hats[0].assign(q_hat_k0)
-    #y_tildes[0].assign(y_tilde_k0)
+    q_tildes[0].assign(q_tilde_k0)
 
     while i < L:
-        plot(q_hat)
-        #plot(y_tilde)
+        #plot(q_hat)
+        #plot(q_tilde)
+        plot(q)
 
         #y_out.assign(y_outs[i])
         #u.assign(us[i])
         y_hat_Q.assign(y_Q - y_hats[-(1+i)]) # take i-th value from behind
+        y_tilde_Q.assign(y_tildes[-(1+i)])
 
         solve(lhs_hat == rhs_hat, q_hat)
-        #solve(lhs_tilde == rhs_tilde, y_tilde)
-        #y.assign(y_hat + y_tilde)
+        solve(lhs_tilde == rhs_tilde, q_tilde)
+        q.assign(q_hat + q_tilde)
 
         q_hat_k0.assign(q_hat)
-        #y_tilde_k0.assign(y_tilde)
+        q_tilde_k0.assign(q_tilde)
 
         i += 1
 
         q_hats[i].assign(q_hat)
-        #y_tildes[i].assign(y_tilde)
+        q_tildes[i].assign(q_tilde)
 
-    # test if adjoint is correct by solving the adjoint system forward in time with the initial value q_hat
-    p_hat_k0 = Function(U)  # function for state at time k+1 (initial value)
-    p_hat_k1 = TrialFunction(U)  # function for state at time k   (this is what we solve for)
-    p_hat_k0.assign(q_hat)  # initial value for adjoint
-
-    lhs_hat = (p_hat_k1 / k * phi) * dx + alpha * inner(grad(phi), grad(p_hat_k1)) * dx + gamma * phi * p_hat_k1 * ds
-    rhs_hat = (p_hat_k0 / k * phi) * dx + sigma_Q * y_hat_Q * phi * dx
-
-    p_hat = Function(U, name="p_hat")
-
-    i = 0
-
-    # lists for storing the open loop
-    p_hats = [Function(U, name="p_hat_" + str(j)) for j in xrange(0, L + 1)]
-    p_hats[0].assign(p_hat_k0)
-
-    while i < L:
-        plot(p_hat)
-        y_hat_Q.assign(y_Q - y_hats[i]) # take i-th value
-
-        solve(lhs_hat == rhs_hat, p_hat)
-
-        p_hat_k0.assign(p_hat)
-
-        i += 1
-
-        p_hats[i].assign(p_hat)
+    q_hats.reverse()
+    q_tildes.reverse()
 
 
 
-    return q_hats #y, y_hats, y_tildes
+    return q_hats, q_tildes #y, y_hats, y_tildes
 
 
 def solve_forward(us, y_outs, record=False):
@@ -292,23 +272,24 @@ def solve_forward(us, y_outs, record=False):
     #
     #     return r_n
 
-def compute_gradient_fd(self, y0, u_n):
+def compute_gradient_fd(u_n, y_outs):
     # numerical approximation of the gradient using finite differences
     eps = 1.0e-3
-    grad_f = np.zeros(self.N)
+    L = len(u_n)
+    grad_f = np.zeros(L)
 
-    for i in range(0,self.N):
+    for i in range(0,L):
         u_minus = np.copy(u_n)
         u_plus  = np.copy(u_n)
 
         u_minus[i] -= eps
         u_plus[i]  += eps
 
-        self.open_loop_solve(y0, u_minus)
-        J_minus = self.eval_J(u_minus)
+        ys, _, _ = solve_forward_split(u_minus, y_outs)
+        J_minus = eval_J(u_minus, ys)
 
-        self.open_loop_solve(y0, u_plus)
-        J_plus = self.eval_J(u_plus)
+        ys, _, _ = solve_forward_split(u_plus, y_outs)
+        J_plus = eval_J(u_plus, ys)
 
         # central difference quotient
         grad_f[i] = (J_plus - J_minus)/(2.0*eps)
@@ -316,38 +297,53 @@ def compute_gradient_fd(self, y0, u_n):
     return grad_f
 
 
-def eval_J(self, u_n):
+def eval_J(u_n, ys):
     norm_y = 0.0
     norm_u = 0.0
 
-    for i in range(0,self.N):
-        y_temp = norm(self.y_ol[i] - self.y_omega)**2
-        u_temp = u_n[i]**2
+    L = len(u_n)
 
-        norm_y += y_temp
-        norm_u += u_temp
+    y_temp = Function(U)
+
+    for i in range(0,L):
+        y_temp.assign(ys[i] - y_Q)
+        y_sum_temp = norm(y_temp)**2
+        u_sum_temp = (u_n[i] - u_ref)**2
+
+        norm_y += y_sum_temp
+        norm_u += u_sum_temp
 
     # final value
-    y_temp = norm(self.y_ol[self.N] - self.y_omega) ** 2
-    norm_y += y_temp
+    y_temp.assign(ys[L] - y_T)
+    y_final = norm(y_temp)**2
 
-    J = 0.5*norm_y + self.lmda*0.5*norm_u
+    J = 0.5*sigma_Q*norm_y + 0.5*sigma_T*y_final + 0.5*sigma_u*norm_u
 
     return J
 
 
 
 if __name__ == "__main__":
-    L = 10
+    L = 5
 
     #us = np.array([0.5 - 1.0/3.0 * sin(i/10.0) for i in range(0,L)])
     #y_outs = np.array([0.5 + 1.0/3.0 * sin(i/10.0) for i in range(0,L)])
-    us = np.array([0.5 for i in range(0, L)])
-    y_outs = np.array([0.5 for i in range(0, L)])
+    us = np.array([0.4901 + i*0.01 for i in range(0, L)])
+    y_outs = np.array([1.55 for i in range(0, L)])
 
-    y_split, y_hats, y_tildes = solve_forward_split(us, y_outs)
+    ys, y_hats, y_tildes = solve_forward_split(us, y_outs)
 
-    solve_adjoint_split(y_hats, y_tildes)
+    grad_fd = compute_gradient_fd(us, y_outs)
+
+    p_hats, p_tildes = solve_adjoint_split(y_hats, y_tildes)
+
+    grad_adj = np.zeros(L)
+    for i in xrange(0,L):
+        p = p_hats[i] + p_tildes[i]
+        grad_adj[i] = sigma_u * (us[i] - u_ref) - assemble(gamma * p * ds(1))
+
+    print("grad_fd  = {}".format(grad_fd))
+    print("grad_adj = {}".format(grad_adj))
 
     #y = solve_forward(us, y_outs)
 
