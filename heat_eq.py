@@ -20,7 +20,7 @@ right.mark(boundary_parts, 1)   # boundary part where control is applied
 ds = Measure("ds", subdomain_data=boundary_parts)
 
 # Choose a time step size
-k = Constant(1.0e-3)
+delta_t = 5.0e-3
 
 # define constants of the PDE
 alpha = Constant(1.0)
@@ -65,11 +65,11 @@ def solve_forward_split(y0,us,y_outs):
     u = Constant(1.0)
 
     # variational formulations
-    lhs_hat = (y_hat_k1 / k * phi) * dx + alpha * inner(grad(phi), grad(y_hat_k1)) * dx + gamma * phi * y_hat_k1 * ds
-    rhs_hat = (y_hat_k0 / k * phi) * dx + gamma * y_out * phi * ds(0)
+    lhs_hat = (y_hat_k1 / Constant(delta_t) * phi) * dx + alpha * inner(grad(phi), grad(y_hat_k1)) * dx + gamma * phi * y_hat_k1 * ds
+    rhs_hat = (y_hat_k0 / Constant(delta_t) * phi) * dx + gamma * y_out * phi * ds(0)
 
-    lhs_tilde = (y_tilde_k1 / k * phi) * dx + alpha * inner(grad(phi), grad(y_tilde_k1)) * dx + gamma * phi * y_tilde_k1 * ds
-    rhs_tilde = (y_tilde_k0 / k * phi) * dx + gamma * u * phi * ds(1)
+    lhs_tilde = (y_tilde_k1 / Constant(delta_t) * phi) * dx + alpha * inner(grad(phi), grad(y_tilde_k1)) * dx + gamma * phi * y_tilde_k1 * ds
+    rhs_tilde = (y_tilde_k0 / Constant(delta_t) * phi) * dx + gamma * u * phi * ds(1)
 
     # functions for storing the solution
     y_hat   = Function(U, name="y_hat")
@@ -126,11 +126,11 @@ def solve_adjoint_split(y_hats, y_tildes):
     q_tilde_k0.assign(Constant(-sigma_T) * y_tilde_T)  # initial value for adjoint
 
     # variational formulations
-    lhs_hat = (q_hat_k1 / k * phi) * dx + alpha * inner(grad(phi), grad(q_hat_k1)) * dx + gamma * phi * q_hat_k1 * ds
-    rhs_hat = (q_hat_k0 / k * phi) * dx + Constant(sigma_Q) * y_hat_Q * phi * dx
+    lhs_hat = (q_hat_k1 / Constant(delta_t) * phi) * dx + alpha * inner(grad(phi), grad(q_hat_k1)) * dx + gamma * phi * q_hat_k1 * ds
+    rhs_hat = (q_hat_k0 / Constant(delta_t) * phi) * dx + Constant(sigma_Q) * y_hat_Q * phi * dx
 
-    lhs_tilde = (q_tilde_k1 / k * phi) * dx + alpha * inner(grad(phi), grad(q_tilde_k1)) * dx + gamma * phi * q_tilde_k1 * ds
-    rhs_tilde = (q_tilde_k0 / k * phi) * dx - Constant(sigma_Q) * y_tilde_Q * phi * dx
+    lhs_tilde = (q_tilde_k1 / Constant(delta_t) * phi) * dx + alpha * inner(grad(phi), grad(q_tilde_k1)) * dx + gamma * phi * q_tilde_k1 * ds
+    rhs_tilde = (q_tilde_k0 / Constant(delta_t) * phi) * dx - Constant(sigma_Q) * y_tilde_Q * phi * dx
 
     # functions for storing the solution
     q_hat = Function(U, name="q_hat")
@@ -193,9 +193,9 @@ def solve_forward(us, y_outs, record=False):
     # Define variational formulation
     # On domain:
     # part depending on solution at current time step
-    a = (y / k * v + alpha * inner(grad(y), grad(v))) * dx + alpha * gamma / beta * y * v * ds
+    a = (y / Constant(delta_t) * v + alpha * inner(grad(y), grad(v))) * dx + alpha * gamma / beta * y * v * ds
     # part depending on solution at previous time step
-    f_y = (y0 / k * v) * dx
+    f_y = (y0 / Constant(delta_t) * v) * dx
 
     # On boundary:
     # forcing due to control
@@ -226,7 +226,7 @@ def solve_forward(us, y_outs, record=False):
 
     #J = 0
     #for i in range(1, len(Jlist)):
-    #    J += 0.5 * (Jlist[i - 1] + Jlist[i]) * float(k) #+ us[i-1]**2
+    #    J += 0.5 * (Jlist[i - 1] + Jlist[i]) * float(Constant(delta_t)) #+ us[i-1]**2
 
     #dJdu = compute_gradient(J, control)
 
@@ -276,7 +276,7 @@ def solve_forward(us, y_outs, record=False):
 
 def compute_gradient_fd(y0, u_n, y_outs):
     # numerical approximation of the gradient using finite differences
-    eps = 1.0e-3
+    eps = 1.0e-5
     L = len(u_n)
     grad_f = np.zeros(L)
 
@@ -310,16 +310,19 @@ def eval_J(u_n, ys):
     for i in range(0,L):
         y_temp.assign(ys[i] - y_Q)
         y_sum_temp = norm(y_temp)**2
-        u_sum_temp = (u_n[i] - u_ref)**2
+        y_temp.assign(ys[i+1] - y_Q)
+        y_sum_temp += norm(y_temp)**2
+        y_sum_temp *= delta_t
+        u_sum_temp = (u_n[i] - u_ref)**2 * delta_t
 
         norm_y += y_sum_temp
         norm_u += u_sum_temp
 
     # final value
-    y_temp.assign(ys[L] - y_T)
-    norm_y_final = norm(y_temp)**2
+    #y_temp.assign(ys[L] - y_T)
+    #norm_y_final = norm(y_temp)**2
 
-    J = 0.5*sigma_Q*norm_y + 0.5*sigma_T*norm_y_final + 0.5*sigma_u*norm_u
+    J = 0.5*sigma_Q*norm_y + 0.5*sigma_u*norm_u #+ 0.5*sigma_T*norm_y_final
 
     return J
 
@@ -327,9 +330,11 @@ def compute_gradient_adj(p_hats, p_tildes, u):
     N = len(p_hats) - 1
     grad_adj = np.zeros(N)
     p = Function(U)
+
+
     for i in xrange(0, N):
         p.assign(p_hats[i] + p_tildes[i])
-        grad_adj[i] = sigma_u * (u[i] - u_ref) - assemble(gamma * p * ds(1))
+        grad_adj[i] =  delta_t * (sigma_u * (u[i] - u_ref) -  assemble(gamma * p * ds(1)))
 
     return grad_adj
 
@@ -399,7 +404,9 @@ def optimization(y0, u, y_out):
 
 if __name__ == "__main__":
     L = 200
-    N = 10
+    N = 2
+
+    print("time interval: {}".format(N * delta_t))
 
 
     y_outs = np.array([0.5 for i in range(0, L+N)])
