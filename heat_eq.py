@@ -15,8 +15,8 @@ right = CompiledSubDomain("near(x[0], 1.)")
 
 # Label boundaries, required for the objective
 boundary_parts = MeshFunction("size_t", mesh, mesh.topology().dim() - 1)
-left.mark(boundary_parts, 0)    # boundary part for outside temperature
-right.mark(boundary_parts, 1)   # boundary part where control is applied
+left.mark(boundary_parts, 0)  # boundary part for outside temperature
+right.mark(boundary_parts, 1)  # boundary part where control is applied
 ds = Measure("ds", subdomain_data=boundary_parts)
 
 # Choose a time step size
@@ -36,43 +36,46 @@ y_T = Function(U)
 y_T.interpolate(Expression("0.5", degree=1))
 y_Q = Function(U)
 y_Q.interpolate(Expression("0.5", degree=1))
-u_ref = 0.75
+u_ref = 0.5
 
 # weights for objective
 sigma_T = 0.0
 sigma_Q = 1.0
 sigma_u = 0.01
 
-
 # fenics output level
 set_log_level(WARNING)
-#set_log_active(False)
 
-def solve_forward_split(y0,us,y_outs):
+
+# set_log_active(False)
+
+def solve_forward_split(y0, us, y_outs):
     """ Solve forward equation of split system """
     phi = TestFunction(U)
     # y_hat
-    y_hat_k1 = TrialFunction(U)     # function for state at time k+1 (this is what we solve for)
-    y_hat_k0 = Function(U)          # function for state at time k  (initial value)
+    y_hat_k1 = TrialFunction(U)  # function for state at time k+1 (this is what we solve for)
+    y_hat_k0 = Function(U)  # function for state at time k  (initial value)
     y_hat_k0.assign(y0)
 
     # y_tilde
-    y_tilde_k1 = TrialFunction(U)   #
-    y_tilde_k0 = Function(U)        #
+    y_tilde_k1 = TrialFunction(U)  #
+    y_tilde_k0 = Function(U)  #
     y_tilde_k0.interpolate(Expression("0.0", degree=1))  # initial value for forward solve
 
     y_out = Constant(1.0)
     u = Constant(1.0)
 
     # variational formulations
-    lhs_hat = (y_hat_k1 / Constant(delta_t) * phi) * dx + alpha * inner(grad(phi), grad(y_hat_k1)) * dx + gamma * phi * y_hat_k1 * ds
+    lhs_hat = (y_hat_k1 / Constant(delta_t) * phi) * dx + alpha * inner(grad(phi), grad(
+        y_hat_k1)) * dx + gamma * phi * y_hat_k1 * ds
     rhs_hat = (y_hat_k0 / Constant(delta_t) * phi) * dx + gamma * y_out * phi * ds(0)
 
-    lhs_tilde = (y_tilde_k1 / Constant(delta_t) * phi) * dx + alpha * inner(grad(phi), grad(y_tilde_k1)) * dx + gamma * phi * y_tilde_k1 * ds
+    lhs_tilde = (y_tilde_k1 / Constant(delta_t) * phi) * dx + alpha * inner(grad(phi), grad(
+        y_tilde_k1)) * dx + gamma * phi * y_tilde_k1 * ds
     rhs_tilde = (y_tilde_k0 / Constant(delta_t) * phi) * dx + gamma * u * phi * ds(1)
 
     # functions for storing the solution
-    y_hat   = Function(U, name="y_hat")
+    y_hat = Function(U, name="y_hat")
     y_tilde = Function(U, name="y_tilde")
     y = Function(U, name="y")
 
@@ -80,9 +83,9 @@ def solve_forward_split(y0,us,y_outs):
     N = len(us)
 
     # lists for storing the open loop
-    y_hats = [Function(U, name="y_hat_" + str(j)) for j in xrange(0,N+1)]
-    y_tildes = [Function(U, name="y_tilde_" + str(j)) for j in xrange(0,N+1)]
-    ys = [Function(U, name="ys_" + str(j)) for j in xrange(0,N+1)]
+    y_hats = [Function(U, name="y_hat_" + str(j)) for j in xrange(0, N + 1)]
+    y_tildes = [Function(U, name="y_tilde_" + str(j)) for j in xrange(0, N + 1)]
+    ys = [Function(U, name="ys_" + str(j)) for j in xrange(0, N + 1)]
 
     y_hats[0].assign(y_hat_k0)
     y_tildes[0].assign(y_tilde_k0)
@@ -107,6 +110,7 @@ def solve_forward_split(y0,us,y_outs):
 
     return ys, y_hats, y_tildes
 
+
 def solve_adjoint_split(y_hats, y_tildes):
     y_hat_T = Function(U)
     y_hat_T.assign(y_T - y_hats[-1])
@@ -117,19 +121,21 @@ def solve_adjoint_split(y_hats, y_tildes):
     y_tilde_Q = Function(U)
 
     phi = TestFunction(U)
-    q_hat_k0 = Function(U)          # function for state at time k+1 (initial value)
-    q_hat_k1 = TrialFunction(U)     # function for state at time k   (this is what we solve for)
-    q_hat_k0.assign(Constant(sigma_T) * y_hat_T)     # initial value for adjoint
+    q_hat_k0 = Function(U)  # function for state at time k+1 (initial value)
+    q_hat_k1 = TrialFunction(U)  # function for state at time k   (this is what we solve for)
+    q_hat_k0.assign(Constant(sigma_T) * y_hat_T)  # initial value for adjoint
 
     q_tilde_k0 = Function(U)
     q_tilde_k1 = TrialFunction(U)
     q_tilde_k0.assign(Constant(-sigma_T) * y_tilde_T)  # initial value for adjoint
 
     # variational formulations
-    lhs_hat = (q_hat_k1 / Constant(delta_t) * phi) * dx + alpha * inner(grad(phi), grad(q_hat_k1)) * dx + gamma * phi * q_hat_k1 * ds
+    lhs_hat = (q_hat_k1 / Constant(delta_t) * phi) * dx + alpha * inner(grad(phi), grad(
+        q_hat_k1)) * dx + gamma * phi * q_hat_k1 * ds
     rhs_hat = (q_hat_k0 / Constant(delta_t) * phi) * dx + Constant(sigma_Q) * y_hat_Q * phi * dx
 
-    lhs_tilde = (q_tilde_k1 / Constant(delta_t) * phi) * dx + alpha * inner(grad(phi), grad(q_tilde_k1)) * dx + gamma * phi * q_tilde_k1 * ds
+    lhs_tilde = (q_tilde_k1 / Constant(delta_t) * phi) * dx + alpha * inner(grad(phi), grad(
+        q_tilde_k1)) * dx + gamma * phi * q_tilde_k1 * ds
     rhs_tilde = (q_tilde_k0 / Constant(delta_t) * phi) * dx - Constant(sigma_Q) * y_tilde_Q * phi * dx
 
     # functions for storing the solution
@@ -148,12 +154,12 @@ def solve_adjoint_split(y_hats, y_tildes):
     q_tildes[0].assign(q_tilde_k0)
 
     while i < N:
-        #plot(q_hat)
-        #plot(q_tilde)
-        #plot(q)
+        # plot(q_hat)
+        # plot(q_tilde)
+        # plot(q)
 
-        y_hat_Q.assign(y_Q - y_hats[-(1+i)]) # take i-th value from behind
-        y_tilde_Q.assign(y_tildes[-(1+i)])
+        y_hat_Q.assign(y_Q - y_hats[-(1 + i)])  # take i-th value from behind
+        y_tilde_Q.assign(y_tildes[-(1 + i)])
 
         solve(lhs_hat == rhs_hat, q_hat)
         solve(lhs_tilde == rhs_tilde, q_tilde)
@@ -224,11 +230,11 @@ def solve_forward(us, y_outs, record=False):
 
         i += 1
 
-    #J = 0
-    #for i in range(1, len(Jlist)):
+    # J = 0
+    # for i in range(1, len(Jlist)):
     #    J += 0.5 * (Jlist[i - 1] + Jlist[i]) * float(Constant(delta_t)) #+ us[i-1]**2
 
-    #dJdu = compute_gradient(J, control)
+    # dJdu = compute_gradient(J, control)
 
     return y, ys, y_omegas
 
@@ -274,18 +280,19 @@ def solve_forward(us, y_outs, record=False):
     #
     #     return r_n
 
+
 def compute_gradient_fd(y0, u_n, y_outs):
     # numerical approximation of the gradient using finite differences
     eps = 1.0e-5
     L = len(u_n)
     grad_f = np.zeros(L)
 
-    for i in range(0,L):
+    for i in range(0, L):
         u_minus = np.copy(u_n)
-        u_plus  = np.copy(u_n)
+        u_plus = np.copy(u_n)
 
         u_minus[i] -= eps
-        u_plus[i]  += eps
+        u_plus[i] += eps
 
         ys, _, _ = solve_forward_split(y0, u_minus, y_outs)
         J_minus = eval_J(u_minus, ys)
@@ -294,7 +301,7 @@ def compute_gradient_fd(y0, u_n, y_outs):
         J_plus = eval_J(u_plus, ys)
 
         # central difference quotient
-        grad_f[i] = (J_plus - J_minus)/(2.0*eps)
+        grad_f[i] = (J_plus - J_minus) / (2.0 * eps)
 
     return grad_f
 
@@ -307,45 +314,45 @@ def eval_J(u_n, ys):
 
     y_temp = Function(U)
 
-    for i in range(0,L):
+    for i in range(0, L):
         y_temp.assign(ys[i] - y_Q)
-        y_sum_temp = norm(y_temp)**2
-        y_temp.assign(ys[i+1] - y_Q)
-        y_sum_temp += norm(y_temp)**2
-        y_sum_temp *= delta_t
-        u_sum_temp = (u_n[i] - u_ref)**2 * delta_t
+        y_sum_temp = norm(y_temp) ** 2
+        y_temp.assign(ys[i + 1] - y_Q)
+        y_sum_temp += norm(y_temp) ** 2
+        #y_sum_temp *= delta_t
+        u_sum_temp = (u_n[i] - u_ref) ** 2 # * delta_t
 
         norm_y += y_sum_temp
         norm_u += u_sum_temp
 
     # final value
-    #y_temp.assign(ys[L] - y_T)
-    #norm_y_final = norm(y_temp)**2
+    y_temp.assign(ys[L] - y_T)
+    norm_y_final = norm(y_temp)**2
 
-    J = 0.5*sigma_Q*norm_y + 0.5*sigma_u*norm_u #+ 0.5*sigma_T*norm_y_final
+    J = 0.5 * sigma_Q * norm_y + 0.5 * sigma_u * norm_u + 0.5 * sigma_T*norm_y_final
 
     return J
+
 
 def compute_gradient_adj(p_hats, p_tildes, u):
     N = len(p_hats) - 1
     grad_adj = np.zeros(N)
     p = Function(U)
 
-
     for i in xrange(0, N):
         p.assign(p_hats[i] + p_tildes[i])
-        grad_adj[i] =  delta_t * (sigma_u * (u[i] - u_ref) -  assemble(gamma * p * ds(1)))
+#        grad_adj[i] = delta_t * (sigma_u * (u[i] - u_ref) - assemble(gamma * p * ds(1)))
+        grad_adj[i] = (sigma_u * (u[i] - u_ref) - assemble(gamma * p * ds(1)))
 
     return grad_adj
 
 
 def optimization(y0, u, y_out):
-
     max_iter = 100
 
     grad_fd_approximation = True
 
-    for i in range(0,max_iter):
+    for i in range(0, max_iter):
         # forward solve
         ys, y_hats, y_tildes = solve_forward_split(y0, u, y_out)
 
@@ -359,19 +366,19 @@ def optimization(y0, u, y_out):
         print("J = {}".format(J))
 
         print("grad_adj = {}".format(grad_adj))
-        print("|grad_adj| = {}".format(np.linalg.norm(grad_adj)))
+        # print("|grad_adj| = {}".format(np.linalg.norm(grad_adj)))
 
         if grad_fd_approximation:
             grad_fd = compute_gradient_fd(y0, u, y_out)
             print("grad_fd  = {}".format(grad_fd))
-            grad_error = np.linalg.norm(grad_adj - grad_fd)/np.linalg.norm(grad_fd)
+            grad_error = np.linalg.norm(grad_adj - grad_fd) / np.linalg.norm(grad_fd)
             if grad_error > 1.0e-3:
                 print("WARNING: gradient error = {}".format(grad_error))
 
         # descent direction
         d = -grad_adj
 
-        if np.linalg.norm(d) < 1.0e-3:
+        if np.linalg.norm(d) < 1.0e-5:
             print("|d| = {}".format(np.linalg.norm(d)))
             print("near stationary point -> terminating")
             break
@@ -385,9 +392,9 @@ def optimization(y0, u, y_out):
         u_s = u + t * d
         ys, _, _ = solve_forward_split(y0, u_s, y_out)
         J_s = eval_J(u_s, ys)
-        while J_s > J + alpha_s * t * np.dot(grad_adj,d):
-            l = l+1
-            t = beta_s**l
+        while J_s > J + alpha_s * t * np.dot(grad_adj, d):
+            l = l + 1
+            t = beta_s ** l
             u_s = u + t * d
             ys, _, _ = solve_forward_split(y0, u_s, y_out)
             J_s = eval_J(u_s, ys)
@@ -402,32 +409,32 @@ def optimization(y0, u, y_out):
 
     return u
 
+
 if __name__ == "__main__":
     L = 200
     N = 2
 
     print("time interval: {}".format(N * delta_t))
 
-
-    y_outs = np.array([0.5 for i in range(0, L+N)])
+    y_outs = np.array([0.5 for i in range(0, L + N)])
 
     y0 = Function(U)
     y0.interpolate(Expression("0.5", degree=1))  # initial value
 
-    u_guess = np.array([0.0 for i in range(0, N)])
-    #u_guess = np.array([ 0.88017965,  0.73220114,  0.64458604,  0.57328225,  0.49232443])
+    u_guess = np.array([0.5 for i in range(0, N)])
+    # u_guess = np.array([ 0.88017965,  0.73220114,  0.64458604,  0.57328225,  0.49232443])
 
-    for i in range(0,L):
+    for i in range(0, L):
         print("\n\ntime step {}".format(i))
         plot(y0)
 
         # solve optimal control problem
-        u_opt = optimization(y0, u_guess, y_outs[i:i+N])
+        u_opt = optimization(y0, u_guess, y_outs[i:i + N])
 
         print("u_opt = {}".format(u_opt))
 
         # simulate next time step
-        ys, y_hats, y_tildes = solve_forward_split(y0, u_opt[0:1], y_outs[i:i+1])
+        ys, y_hats, y_tildes = solve_forward_split(y0, u_opt[0:1], y_outs[i:i + 1])
 
         # update initial value for next time step
         y0.assign(ys[1])
@@ -435,16 +442,14 @@ if __name__ == "__main__":
         u_guess = np.roll(u_opt, -1)
         u_guess[-1] = u_guess[-2]
 
-
-
-    #ys, y_hats, y_tildes = solve_forward_split(y0, us, y_outs)
+    # ys, y_hats, y_tildes = solve_forward_split(y0, us, y_outs)
 
 
 
-    #y = solve_forward(us, y_outs)
+    # y = solve_forward(us, y_outs)
 
 
-    #t = y_split.vector().array() - y.vector().array()
+    # t = y_split.vector().array() - y.vector().array()
 
     pass
 
