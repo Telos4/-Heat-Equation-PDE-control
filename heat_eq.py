@@ -41,7 +41,7 @@ u_ref = 0.0
 # weights for objective
 sigma_T = 1.0
 sigma_Q = 1.0
-sigma_u = 0.01
+sigma_u = 0.1
 
 # fenics output level
 set_log_level(WARNING)
@@ -235,7 +235,7 @@ def solve_forward(us, y_outs, record=False):
 
 def compute_gradient_fd(y0, u_n, y_outs):
     # numerical approximation of the gradient using finite differences
-    eps = 1.0e-5
+    eps = 1.0e-7
     L = len(u_n)
     grad_f = np.zeros(L)
 
@@ -266,13 +266,17 @@ def eval_J(u_n, ys):
 
     y_temp = Function(U)
 
-    for i in range(0, L):
+    for i in range(0, L+1):
         y_temp.assign(ys[i] - y_Q)
-        y_sum_temp = norm(y_temp) ** 2
-        y_temp.assign(ys[i + 1] - y_Q)
-        y_sum_temp += norm(y_temp) ** 2
-        y_sum_temp *= delta_t * 0.5
+        y_sum_temp = delta_t * norm(y_temp) ** 2
         norm_y += y_sum_temp
+    # for i in range(0, L):
+    #     y_temp.assign(ys[i] - y_Q)
+    #     y_sum_temp = norm(y_temp) ** 2
+    #     y_temp.assign(ys[i + 1] - y_Q)
+    #     y_sum_temp += norm(y_temp) ** 2
+    #     y_sum_temp *= delta_t * 0.5
+    #     norm_y += y_sum_temp
 
     for i in range(0, L):
         u_sum_temp = (u_n[i] - u_ref) ** 2 * delta_t
@@ -282,7 +286,7 @@ def eval_J(u_n, ys):
     y_temp.assign(ys[L] - y_T)
     norm_y_final = norm(y_temp)**2
 
-    J = 0.5 * sigma_Q * norm_y + 0.5 * sigma_u * norm_u  + 0.5 * sigma_T*norm_y_final
+    J = 0.5 * sigma_Q * norm_y + 0.5 * sigma_u * norm_u + 0.5 * sigma_T*norm_y_final
 
     return J
 
@@ -303,7 +307,7 @@ def compute_gradient_adj(p_hats, p_tildes, u):
 def optimization(y0, u, y_out):
     max_iter = 100
 
-    grad_fd_approximation = False
+    grad_fd_approximation = True
 
     for i in range(0, max_iter):
         # forward solve
@@ -366,7 +370,7 @@ def optimization(y0, u, y_out):
 
 if __name__ == "__main__":
     L = 200
-    N = 10
+    N = 5
 
     print("time interval: {}".format(N * delta_t))
 
