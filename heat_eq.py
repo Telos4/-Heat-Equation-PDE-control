@@ -33,13 +33,13 @@ U = FunctionSpace(mesh, "Lagrange", 1)
 # min_(y,u)  \sigma_Q/2 \int_{0,T} \int_{\Omega} |y - y_Q|_L2 dx dt + \sigma_T/2 \int_{\Omega} |y - y_T| dx
 #   + sigma_u/2 \int_{0,T} |u - u_ref|^2 dt
 y_T = Function(U)
-y_T.interpolate(Expression("0.5", degree=1))
+y_T.interpolate(Expression("0.0", degree=1))
 y_Q = Function(U)
-y_Q.interpolate(Expression("0.5", degree=1))
-u_ref = 0.5
+y_Q.interpolate(Expression("0.0", degree=1))
+u_ref = 0.0
 
 # weights for objective
-sigma_T = 0.0
+sigma_T = 1.0
 sigma_Q = 1.0
 sigma_u = 0.01
 
@@ -188,7 +188,7 @@ def solve_forward(us, y_outs, record=False):
 
     # Set up initial values
     y0 = Function(U, name="y0")
-    y0 = interpolate(Expression("0.5", degree=1), U)
+    y0 = interpolate(Expression("0.0", degree=1), U)
 
     # Define test and trial functions
     v = TestFunction(U)
@@ -230,55 +230,7 @@ def solve_forward(us, y_outs, record=False):
 
         i += 1
 
-    # J = 0
-    # for i in range(1, len(Jlist)):
-    #    J += 0.5 * (Jlist[i - 1] + Jlist[i]) * float(Constant(delta_t)) #+ us[i-1]**2
-
-    # dJdu = compute_gradient(J, control)
-
     return y, ys, y_omegas
-
-    # def open_loop_solve_adjoint(self, pT):
-    #     # solve the adjoint PDE
-    #     N = self.N
-    #     h = Constant(self.dt)
-    #     gamma = [self.gamma_i, self.gamma_i, self.gamma_c, self.gamma_i]
-    #     alpha = Constant(self.alpha)
-    #
-    #     # set initial value
-    #     self.p_ol[0].assign(pT)
-    #
-    #     for k in range(0, N):
-    #         #print("k = %i" % k)
-    #         v = TestFunction(self.S)
-    #         a = ((self.p_ol[k+1] - self.p_ol[k] - h * (self.y_ol[N-k] - self.y_omega)) * v) * dx
-    #         a += h * alpha * inner(grad(self.p_ol[k+1]), grad(v)) * dx
-    #         for i in range(1, 5):
-    #             a += h * alpha * Constant(gamma[i - 1]) * self.p_ol[k+1] * v * ds(i)
-    #
-    #         heat_eq_adj_problem = NonlinearVariationalProblem(a, self.p_ol[k+1])
-    #
-    #         heat_eq_adj_solver = NonlinearVariationalSolver(
-    #         heat_eq_adj_problem,
-    #             solver_parameters=self.heat_eq_solver_parameters)
-    #
-    #         heat_eq_adj_solver.solve()
-    #
-    #     self.p_ol.reverse()
-    #
-    #     for k in range(0,N+1):
-    #         self.outfile_p.write(self.p_ol[k])
-    #
-    # def compute_gradient(self, u_n):
-    #     r_n = np.array([0.0 for i in range(0,self.N)])
-    #     for i in range(0, self.N):
-    #         p = self.p_ol[i].at([0.5, 0.0])
-    #         #print("p[{}] = {}".format(i,p))
-    #         #for j in range(0,10):
-    #         #    print("p[{}] = {}".format(0.1*j,self.p_ol[i].at([0.1*j, 0.0])))
-    #         r_n[i] = - (self.lmda * u_n[i] + self.gamma_c * self.alpha * p) # use integral here?
-    #
-    #     return r_n
 
 
 def compute_gradient_fd(y0, u_n, y_outs):
@@ -319,17 +271,18 @@ def eval_J(u_n, ys):
         y_sum_temp = norm(y_temp) ** 2
         y_temp.assign(ys[i + 1] - y_Q)
         y_sum_temp += norm(y_temp) ** 2
-        #y_sum_temp *= delta_t
-        u_sum_temp = (u_n[i] - u_ref) ** 2 # * delta_t
-
+        y_sum_temp *= delta_t * 0.5
         norm_y += y_sum_temp
+
+    for i in range(0, L):
+        u_sum_temp = (u_n[i] - u_ref) ** 2 * delta_t
         norm_u += u_sum_temp
 
     # final value
     y_temp.assign(ys[L] - y_T)
     norm_y_final = norm(y_temp)**2
 
-    J = 0.5 * sigma_Q * norm_y + 0.5 * sigma_u * norm_u + 0.5 * sigma_T*norm_y_final
+    J = 0.5 * sigma_Q * norm_y + 0.5 * sigma_u * norm_u  + 0.5 * sigma_T*norm_y_final
 
     return J
 
@@ -341,8 +294,8 @@ def compute_gradient_adj(p_hats, p_tildes, u):
 
     for i in xrange(0, N):
         p.assign(p_hats[i] + p_tildes[i])
-#        grad_adj[i] = delta_t * (sigma_u * (u[i] - u_ref) - assemble(gamma * p * ds(1)))
-        grad_adj[i] = (sigma_u * (u[i] - u_ref) - assemble(gamma * p * ds(1)))
+        grad_adj[i] = delta_t * (sigma_u * (u[i] - u_ref) - assemble(gamma * p * ds(1)))
+#        grad_adj[i] = (sigma_u * (u[i] - u_ref) - assemble(gamma * p * ds(1)))
 
     return grad_adj
 
@@ -350,7 +303,7 @@ def compute_gradient_adj(p_hats, p_tildes, u):
 def optimization(y0, u, y_out):
     max_iter = 100
 
-    grad_fd_approximation = True
+    grad_fd_approximation = False
 
     for i in range(0, max_iter):
         # forward solve
@@ -372,7 +325,7 @@ def optimization(y0, u, y_out):
             grad_fd = compute_gradient_fd(y0, u, y_out)
             print("grad_fd  = {}".format(grad_fd))
             grad_error = np.linalg.norm(grad_adj - grad_fd) / np.linalg.norm(grad_fd)
-            if grad_error > 1.0e-3:
+            if grad_error > 1.0e-2:
                 print("WARNING: gradient error = {}".format(grad_error))
 
         # descent direction
@@ -388,19 +341,20 @@ def optimization(y0, u, y_out):
         l = 0
         beta_s = 0.9
         alpha_s = 0.1
-        t = 1.0
+        t = 50.0
         u_s = u + t * d
         ys, _, _ = solve_forward_split(y0, u_s, y_out)
         J_s = eval_J(u_s, ys)
         while J_s > J + alpha_s * t * np.dot(grad_adj, d):
             l = l + 1
-            t = beta_s ** l
+            t = t * beta_s ** l
             u_s = u + t * d
             ys, _, _ = solve_forward_split(y0, u_s, y_out)
             J_s = eval_J(u_s, ys)
 
             if l > 50:
                 break
+        print("final linesearch parameter: t = {}".format(t))
 
         # update iterate
         u = u + t * d
@@ -412,17 +366,19 @@ def optimization(y0, u, y_out):
 
 if __name__ == "__main__":
     L = 200
-    N = 2
+    N = 10
 
     print("time interval: {}".format(N * delta_t))
 
-    y_outs = np.array([0.5 for i in range(0, L + N)])
+    y_outs = np.array([0.00 * sin(i) for i in range(0, L + N)])
 
     y0 = Function(U)
-    y0.interpolate(Expression("0.5", degree=1))  # initial value
+    y0.interpolate(Expression("0.0", degree=1))  # initial value
 
-    u_guess = np.array([0.5 for i in range(0, N)])
-    # u_guess = np.array([ 0.88017965,  0.73220114,  0.64458604,  0.57328225,  0.49232443])
+    u_guess = np.array([1.0 for i in range(0, N)])
+    #u_guess = np.array([ 0.88017965,  0.73220114,  0.64458604,  0.57328225,  0.49232443])
+
+    y = solve_forward_split(y0, u_guess, y_outs)
 
     for i in range(0, L):
         print("\n\ntime step {}".format(i))
@@ -442,64 +398,5 @@ if __name__ == "__main__":
         u_guess = np.roll(u_opt, -1)
         u_guess[-1] = u_guess[-2]
 
-    # ys, y_hats, y_tildes = solve_forward_split(y0, us, y_outs)
-
-
-
-    # y = solve_forward(us, y_outs)
-
-
-    # t = y_split.vector().array() - y.vector().array()
 
     pass
-
-    # cwd = abspath(dirname(__file__))
-    # data_dir = join(cwd, "data")
-    #
-    # mesh = UnitSquareMesh(10,10)
-    #
-    #
-    # heateq.dt = 0.005
-    #
-    # S = heateq.S
-    #
-    # us = []
-    # ue = [1.0, 2.0, 3.0, 4.0, 5.0, 10.0, 10.0, 10.0, 10.0, 10.0, 25.0, 25.0, 20.0, 20.0, 20.0]
-    # for i in range(0,heateq.N):
-    #     if i < len(ue):
-    #         us.append(ue[i])
-    #     else:
-    #         us.append(0.0)
-    # y0 = Function(S)
-    # y0.assign(0.0)
-    #
-    # u_n = np.array([0.0 for i in range(0, heateq.N)])
-    # u_n[0] = 1.63
-    # u_n[1] = 1.12
-    #
-    # for i in range(0,300):
-    #     # 1. solve PDE
-    #     heateq.open_loop_solve(y0, u_n)
-    #
-    #     J_n = heateq.eval_J(u_n)
-    #     print("J(y,u) = {}".format(J_n))
-    #
-    #     # 2. solve Adjoint
-    #     pT = Function(S)
-    #     pT.interpolate(heateq.y_ol[heateq.N] - heateq.y_omega)
-    #
-    #     heateq.open_loop_solve_adjoint(pT)
-    #
-    #     # 3. compute descent direction
-    #     r_n = heateq.compute_gradient(u_n)
-    #
-    #     # 3.1 compute descrent direction using finite differences
-    #     grad_f = heateq.compute_gradient_fd(y0, u_n)
-    #
-    #     print("grad_f = {}".format(grad_f))
-    #     print("r_n    = {}".format(r_n))
-    #
-    #     #u_n = u_n + 0.1 * r_n
-    #     u_n = u_n - 0.1 * grad_f
-    #
-    #     print("u_n" + str(u_n))
