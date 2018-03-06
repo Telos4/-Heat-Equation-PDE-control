@@ -4,6 +4,7 @@ from os.path import abspath, basename, dirname, join
 import numpy as np
 import matplotlib.pyplot as plt
 import time
+import scipy.optimize
 
 from collections import OrderedDict
 
@@ -305,84 +306,47 @@ def compute_gradient_adj(p_hats, p_tildes, u):
     return grad_adj
 
 
-def optimization(y0, u, y_out):
-    max_iter = 100
+def func_J(u, y0, y_out):
+    # forward solve
+    ys, y_hats, y_tildes = solve_forward_split(y0, u, y_out)
 
+    J = eval_J(u, ys)
+    print("J = {}".format(J))
+
+    return J
+
+
+def grad_J(u, y0, y_out):
     grad_fd_approximation = False
-    bfgs = True
-    B = np.eye(len(u))
 
-    for i in range(0, max_iter):
-        # forward solve
-        ys, y_hats, y_tildes = solve_forward_split(y0, u, y_out)
+    # forward solve
+    ys, y_hats, y_tildes = solve_forward_split(y0, u, y_out)
 
-        # adjoint solve
-        p_hats, p_tildes = solve_adjoint_split(y_hats, y_tildes)
+    # adjoint solve
+    p_hats, p_tildes = solve_adjoint_split(y_hats, y_tildes)
 
-        # compute gradient
-        grad_adj = compute_gradient_adj(p_hats, p_tildes, u)
+    # compute gradient
+    grad_adj = compute_gradient_adj(p_hats, p_tildes, u)
 
-        J = eval_J(u, ys)
-        print("J = {}".format(J))
+    print("grad_adj = {}".format(grad_adj))
+    print("|grad_adj| = {}".format(np.linalg.norm(grad_adj)))
 
-        print("grad_adj = {}".format(grad_adj))
-        print("|grad_adj| = {}".format(np.linalg.norm(grad_adj)))
+    if grad_fd_approximation:
+        grad_fd = compute_gradient_fd(y0, u, y_out)
+        print("grad_fd  = {}".format(grad_fd))
+        grad_error = np.linalg.norm(grad_adj - grad_fd) / np.linalg.norm(grad_fd)
+        if grad_error > 1.0e-2:
+            print("WARNING: gradient error = {}".format(grad_error))
 
-        if grad_fd_approximation:
-            grad_fd = compute_gradient_fd(y0, u, y_out)
-            print("grad_fd  = {}".format(grad_fd))
-            grad_error = np.linalg.norm(grad_adj - grad_fd) / np.linalg.norm(grad_fd)
-            if grad_error > 1.0e-2:
-                print("WARNING: gradient error = {}".format(grad_error))
+    return grad_adj
 
-        # descent direction
-        if bfgs:    # BFGS method
-            d = np.linalg.solve(B, -grad_adj)
-        else:   # gradient method
-            d = -grad_adj
 
-        if np.linalg.norm(grad_adj) < 1.0e-5:
-            print("|grad_adj| = {}".format(np.linalg.norm(grad_adj)))
-            print("near stationary point -> terminating")
-            break
+def optimization(y0, u, y_out):
+    u_opt = scipy.optimize.fmin_bfgs(func_J, u, grad_J, args=(y0, y_out))
 
-        # line search
-        # Armijo
-        l = 0
-        beta_s = 0.9
-        alpha_s = 0.1
-        t = 50.0
-        u_s = u + t * d
-        ys, _, _ = solve_forward_split(y0, u_s, y_out)
-        J_s = eval_J(u_s, ys)
-        while J_s > J + alpha_s * t * np.dot(grad_adj, d):
-            l = l + 1
-            t = t * beta_s ** l
-            u_s = u + t * d
-            ys, _, _ = solve_forward_split(y0, u_s, y_out)
-            J_s = eval_J(u_s, ys)
+    print("u = {}".format(u_opt))
 
-            if l > 50:
-                break
-        print("final linesearch parameter: t = {}".format(t))
-
-        # update iterate
-        s = t * d
-        u = u + s
-
-        if bfgs:
-            ys, y_hats, y_tildes = solve_forward_split(y0, u, y_out)
-            p_hats, p_tildes = solve_adjoint_split(y_hats, y_tildes)
-            grad_adj_p = compute_gradient_adj(p_hats, p_tildes, u)
-            v = grad_adj_p - grad_adj
-            v.shape = (v.shape[0],1)
-            s.shape = (s.shape[0],1)
-            B = B + np.dot(v, np.transpose(v))/np.dot(np.transpose(v),s) \
-                - np.dot(np.dot(B, s), np.dot(np.transpose(s), B))/np.dot(np.dot(np.transpose(s), B), s)
-
-        print("u = {}".format(u))
-
-    return u
+    return u_opt
 
 
 if __name__ == "__main__":
