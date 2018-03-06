@@ -35,9 +35,9 @@ U = FunctionSpace(mesh, "Lagrange", 1)
 # min_(y,u)  \sigma_Q/2 \int_{0,T} \int_{\Omega} |y - y_Q|_L2 dx dt + \sigma_T/2 \int_{\Omega} |y - y_T| dx
 #   + sigma_u/2 \int_{0,T} |u - u_ref|^2 dt
 y_T = Function(U)
-y_T.interpolate(Expression("0.5", degree=1))
+y_T.interpolate(Expression("0.0", degree=1))
 y_Q = Function(U)
-y_Q.interpolate(Expression("0.5", degree=1))
+y_Q.interpolate(Expression("0.0", degree=1))
 u_ref = 0.0
 
 # weights for objective
@@ -184,7 +184,6 @@ def compute_gradient_adj(ps, u):
     for i in xrange(0, N):
         p.assign(ps[i])
         grad_adj[i] = delta_t * (sigma_u * (u[i] - u_ref) - assemble(gamma * p * ds(1)))
-    #        grad_adj[i] = (sigma_u * (u[i] - u_ref) - assemble(gamma * p * ds(1)))
 
     return grad_adj
 
@@ -193,13 +192,12 @@ def func_J(u, y0, y_out):
     # forward solve
     ys = solve_forward(y0, u, y_out)
     J = eval_J(u, ys)
-    print("J = {}".format(J))
 
     return J
 
 
 def grad_J(u, y0, y_out):
-    grad_fd_approximation = True
+    grad_fd_approximation = False
 
     # forward solve
     ys = solve_forward(y0, u, y_out)
@@ -210,10 +208,10 @@ def grad_J(u, y0, y_out):
     # compute gradient
     grad_adj = compute_gradient_adj(ps, u)
 
-    print("grad_adj = {}".format(grad_adj))
-    print("|grad_adj| = {}".format(np.linalg.norm(grad_adj)))
-
     if grad_fd_approximation:
+        print("grad_adj = {}".format(grad_adj))
+        print("|grad_adj| = {}".format(np.linalg.norm(grad_adj)))
+
         grad_fd = compute_gradient_fd(y0, u, y_out)
         print("grad_fd  = {}".format(grad_fd))
         grad_error = np.linalg.norm(grad_adj - grad_fd) / np.linalg.norm(grad_fd)
@@ -224,16 +222,17 @@ def grad_J(u, y0, y_out):
 
 
 def optimization(y0, u, y_out):
-    u_opt = scipy.optimize.fmin_bfgs(func_J, u, grad_J, args=(y0, y_out))
-
-    print("u = {}".format(u_opt))
-
+    res = scipy.optimize.minimize(func_J, u, method='L-BFGS-B', jac=grad_J, args=(y0, y_out))
+    u_opt = res.x
+    J = res.fun
+    print("J     = {}\nu_opt = {}".format(J, u_opt))
+    #u_opt = scipy.optimize.fmin_bfgs(func_J, u, grad_J, args=(y0, y_out))
     return u_opt
 
 
 if __name__ == "__main__":
-    L = 30
-    N = 5
+    L = 10
+    N = 20
 
     print("time interval: {}".format(N * delta_t))
 
@@ -244,6 +243,7 @@ if __name__ == "__main__":
 
     u_guess = np.array([1.0 for i in range(0, N)])
 
+    t0 = time.clock()
     for i in range(0, L):
         print("\n\ntime step {}".format(i))
         plot(y0)
@@ -252,7 +252,7 @@ if __name__ == "__main__":
         # solve optimal control problem
         u_opt = optimization(y0, u_guess, y_outs[i:i + N])
 
-        print("u_opt = {}".format(u_opt))
+        #print("u_opt = {}".format(u_opt))
 
         # simulate next time step
         ys = solve_forward(y0, u_opt[0:1], y_outs[i:i + 1])
@@ -264,3 +264,5 @@ if __name__ == "__main__":
         u_guess[-1] = u_guess[-2]
 
         pass
+    t = time.clock() - t0
+    print("elapsed time: {}".format(t))
