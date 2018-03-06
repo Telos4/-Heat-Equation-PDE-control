@@ -35,9 +35,9 @@ U = FunctionSpace(mesh, "Lagrange", 1)
 # min_(y,u)  \sigma_Q/2 \int_{0,T} \int_{\Omega} |y - y_Q|_L2 dx dt + \sigma_T/2 \int_{\Omega} |y - y_T| dx
 #   + sigma_u/2 \int_{0,T} |u - u_ref|^2 dt
 y_T = Function(U)
-y_T.interpolate(Expression("0.0", degree=1))
+y_T.interpolate(Expression("0.5", degree=1))
 y_Q = Function(U)
-y_Q.interpolate(Expression("0.0", degree=1))
+y_Q.interpolate(Expression("0.5", degree=1))
 u_ref = 0.0
 
 # weights for objective
@@ -113,6 +113,95 @@ def solve_forward_split(y0, us, y_outs):
     return ys, y_hats, y_tildes
 
 
+def solve_adjoint(y_hats, y_tildes, ys):
+    y_hat_T = Function(U)
+    y_hat_T.assign(y_T - y_hats[-1])
+    y_hat_Q = Function(U)
+
+    y_tilde_T = Function(U)
+    y_tilde_T.assign(y_tildes[-1])
+    y_tilde_Q = Function(U)
+
+    ybar = Function(U)
+
+    phi = TestFunction(U)
+    q_k0 = Function(U)
+    q_k1 = TrialFunction(U)
+    q_k0.assign(Constant(sigma_T) * (y_T - ys[-1]))
+
+    q_hat_k0 = Function(U)  # function for state at time k+1 (initial value)
+    q_hat_k1 = TrialFunction(U)  # function for state at time k   (this is what we solve for)
+    q_hat_k0.assign(Constant(sigma_T) * y_hat_T)  # initial value for adjoint
+
+    q_tilde_k0 = Function(U)
+    q_tilde_k1 = TrialFunction(U)
+    q_tilde_k0.assign(Constant(-sigma_T) * y_tilde_T)  # initial value for adjoint
+
+    # variational formulations
+    lhs = (q_k1 / Constant(delta_t) * phi) * dx + alpha * inner(grad(phi), grad(q_k1)) * dx + gamma * phi * q_k1 * ds
+    rhs = (q_k0 / Constant(delta_t) * phi) * dx + Constant(sigma_Q) * (y_Q - ybar) * phi * dx
+
+    lhs_hat = (q_hat_k1 / Constant(delta_t) * phi) * dx + alpha * inner(grad(phi), grad(
+        q_hat_k1)) * dx + gamma * phi * q_hat_k1 * ds
+    rhs_hat = (q_hat_k0 / Constant(delta_t) * phi) * dx + Constant(sigma_Q) * y_hat_Q * phi * dx
+
+    lhs_tilde = (q_tilde_k1 / Constant(delta_t) * phi) * dx + alpha * inner(grad(phi), grad(
+        q_tilde_k1)) * dx + gamma * phi * q_tilde_k1 * ds
+    rhs_tilde = (q_tilde_k0 / Constant(delta_t) * phi) * dx - Constant(sigma_Q) * y_tilde_Q * phi * dx
+
+    # functions for storing the solution
+    q_hat = Function(U, name="q_hat")
+    q_tilde = Function(U, name="q_tilde")
+    q = Function(U, name="q")
+
+    i = 0
+    N = len(y_hats) - 1
+
+    # lists for storing the open loop
+    q_hats = [Function(U, name="q_hat_" + str(j)) for j in xrange(0, N + 1)]
+    q_tildes = [Function(U, name="q_tilde_" + str(j)) for j in xrange(0, N + 1)]
+    qs = [Function(U, name="q_" + str(j)) for j in xrange(0, N+1)]
+
+    q_hats[0].assign(q_hat_k0)
+    q_tildes[0].assign(q_tilde_k0)
+    qs[0].assign(q_k0)
+
+    while i < N:
+        # plot(q_hat)
+        # plot(q_tilde)
+        # plot(q)
+
+        y_hat_Q.assign(y_Q - y_hats[-(1 + i)])  # take i-th value from behind
+        y_tilde_Q.assign(y_tildes[-(1 + i)])
+        ybar.assign(ys[-(1+i)])
+
+        solve(lhs_hat == rhs_hat, q_hat)
+        solve(lhs_tilde == rhs_tilde, q_tilde)
+        solve(lhs == rhs, q)
+        #q.assign(q_hat + q_tilde)
+
+        q_hat_k0.assign(q_hat)
+        q_tilde_k0.assign(q_tilde)
+        q_k0.assign(q)
+
+        i += 1
+
+        q_hats[i].assign(q_hat)
+        q_tildes[i].assign(q_tilde)
+        qs[i].assign(q)
+
+    q_hats.reverse()
+    q_tildes.reverse()
+    qs.reverse()
+
+    sum = 0
+    for i in range(0,N):
+        p = Function(U)
+        p.assign(qs[i] - (q_hats[i] + q_tildes[i]))
+        sum += norm(p)
+    print("norm = {}".format(sum))
+
+    return q_hats, q_tildes
 def solve_adjoint_split(y_hats, y_tildes):
     y_hat_T = Function(U)
     y_hat_T.assign(y_T - y_hats[-1])
@@ -350,12 +439,12 @@ def optimization(y0, u, y_out):
 
 
 if __name__ == "__main__":
-    L = 200
-    N = 3
+    L = 30
+    N = 20
 
     print("time interval: {}".format(N * delta_t))
 
-    y_outs = np.array([0.00 * sin(i) for i in range(0, L + N)])
+    y_outs = np.array([0.10 * sin(i) for i in range(0, L + N)])
 
     y0 = Function(U)
     y0.interpolate(Expression("0.1", degree=1))  # initial value
@@ -363,12 +452,13 @@ if __name__ == "__main__":
     u_guess = np.array([1.0 for i in range(0, N)])
     #u_guess = np.array([ 0.88017965,  0.73220114,  0.64458604,  0.57328225,  0.49232443])
 
-    y = solve_forward_split(y0, u_guess, y_outs)
+    ys, y_hats, y_tildes = solve_forward_split(y0, u_guess, y_outs)
+    p_hats, p_tildes = solve_adjoint(y_hats, y_tildes, ys)
 
     for i in range(0, L):
         print("\n\ntime step {}".format(i))
         plot(y0)
-        plt.show()
+        #plt.show()
 
         # solve optimal control problem
         u_opt = optimization(y0, u_guess, y_outs[i:i + N])
@@ -384,5 +474,4 @@ if __name__ == "__main__":
         u_guess = np.roll(u_opt, -1)
         u_guess[-1] = u_guess[-2]
 
-
-    pass
+        pass
