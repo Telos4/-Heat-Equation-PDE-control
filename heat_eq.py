@@ -2,6 +2,7 @@ from __future__ import absolute_import, division, print_function
 from fenics import *
 from os.path import abspath, basename, dirname, join
 import numpy as np
+import matplotlib.pyplot as plt
 import time
 
 from collections import OrderedDict
@@ -307,7 +308,9 @@ def compute_gradient_adj(p_hats, p_tildes, u):
 def optimization(y0, u, y_out):
     max_iter = 100
 
-    grad_fd_approximation = True
+    grad_fd_approximation = False
+    bfgs = True
+    B = np.eye(len(u))
 
     for i in range(0, max_iter):
         # forward solve
@@ -323,7 +326,7 @@ def optimization(y0, u, y_out):
         print("J = {}".format(J))
 
         print("grad_adj = {}".format(grad_adj))
-        # print("|grad_adj| = {}".format(np.linalg.norm(grad_adj)))
+        print("|grad_adj| = {}".format(np.linalg.norm(grad_adj)))
 
         if grad_fd_approximation:
             grad_fd = compute_gradient_fd(y0, u, y_out)
@@ -333,10 +336,13 @@ def optimization(y0, u, y_out):
                 print("WARNING: gradient error = {}".format(grad_error))
 
         # descent direction
-        d = -grad_adj
+        if bfgs:    # BFGS method
+            d = np.linalg.solve(B, -grad_adj)
+        else:   # gradient method
+            d = -grad_adj
 
-        if np.linalg.norm(d) < 1.0e-5:
-            print("|d| = {}".format(np.linalg.norm(d)))
+        if np.linalg.norm(grad_adj) < 1.0e-5:
+            print("|grad_adj| = {}".format(np.linalg.norm(grad_adj)))
             print("near stationary point -> terminating")
             break
 
@@ -361,7 +367,18 @@ def optimization(y0, u, y_out):
         print("final linesearch parameter: t = {}".format(t))
 
         # update iterate
-        u = u + t * d
+        s = t * d
+        u = u + s
+
+        if bfgs:
+            ys, y_hats, y_tildes = solve_forward_split(y0, u, y_out)
+            p_hats, p_tildes = solve_adjoint_split(y_hats, y_tildes)
+            grad_adj_p = compute_gradient_adj(p_hats, p_tildes, u)
+            v = grad_adj_p - grad_adj
+            v.shape = (v.shape[0],1)
+            s.shape = (s.shape[0],1)
+            B = B + np.dot(v, np.transpose(v))/np.dot(np.transpose(v),s) \
+                - np.dot(np.dot(B, s), np.dot(np.transpose(s), B))/np.dot(np.dot(np.transpose(s), B), s)
 
         print("u = {}".format(u))
 
@@ -370,14 +387,14 @@ def optimization(y0, u, y_out):
 
 if __name__ == "__main__":
     L = 200
-    N = 5
+    N = 3
 
     print("time interval: {}".format(N * delta_t))
 
     y_outs = np.array([0.00 * sin(i) for i in range(0, L + N)])
 
     y0 = Function(U)
-    y0.interpolate(Expression("0.0", degree=1))  # initial value
+    y0.interpolate(Expression("0.1", degree=1))  # initial value
 
     u_guess = np.array([1.0 for i in range(0, N)])
     #u_guess = np.array([ 0.88017965,  0.73220114,  0.64458604,  0.57328225,  0.49232443])
@@ -387,6 +404,7 @@ if __name__ == "__main__":
     for i in range(0, L):
         print("\n\ntime step {}".format(i))
         plot(y0)
+        plt.show()
 
         # solve optimal control problem
         u_opt = optimization(y0, u_guess, y_outs[i:i + N])
