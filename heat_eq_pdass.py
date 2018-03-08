@@ -9,7 +9,7 @@ import scipy.optimize
 from collections import OrderedDict
 
 # define a mesh
-mesh = UnitIntervalMesh(100)
+mesh = UnitIntervalMesh(20)
 
 # Compile sub domains for boundaries
 left = CompiledSubDomain("near(x[0], 0.)")
@@ -48,6 +48,94 @@ sigma_u = 0.1
 # fenics output level
 set_log_level(WARNING)
 
+def optimality_system(y0, y_outs):
+    N = len(y_outs) - 1
+    phi = TestFunction(U)
+    ys = [TrialFunction(U) for i in range(0,N+1)]
+    ps = [TrialFunction(U) for i in range(0,N+1)]
+
+    a = {}
+    b = {}
+    c = {}
+    d = {}
+    e = {}
+
+    f = {}
+    g = {}
+    h = {}
+    j = {}
+    for i in range(0,N):
+        a[i] = ys[i+1]/Constant(delta_t) * phi * dx + alpha * inner(grad(ys[i+1]), grad(phi)) * dx \
+               + gamma * phi * ys[i+1] * ds
+        b[i] = -ys[i]/Constant(delta_t) * phi * dx
+        c[i] = Constant(1)/Constant(sigma_u) * ps[i+1] * ds(1)
+        d[i] = phi * ds(1)
+        e[i] = Constant(y_outs[i+1]) * phi * ds(0)
+
+        f[i] = ps[i]/Constant(delta_t) * phi * dx + alpha * inner(grad(phi), grad(ps[i])) * dx + gamma * phi * ps[i] * ds
+        g[i] = -ps[i+1]/Constant(delta_t) * phi * dx
+        h[i] = sigma_Q * ys[i] * phi * dx
+        j[i] = sigma_Q * y_Q * phi * dx
+
+    A = {}
+    B = {}
+    C = {}
+    D = {}
+    E = {}
+
+    F = {}
+    G = {}
+    H = {}
+    J = {}
+
+    DC = {}
+    for i in range(0,N):
+        A[i] = assemble(a[i]).array()
+        B[i] = assemble(b[i]).array()
+        C[i] = assemble(c[i]).get_local()
+        C[i].shape = (1,C[i].shape[0])
+        D[i] = assemble(d[i]).get_local()
+        D[i].shape = (D[i].shape[0],1)
+        DC[i] = np.dot(D[i], C[i])
+        E[i] = assemble(e[i]).get_local()
+
+        F[i] = assemble(f[i]).array()
+        G[i] = assemble(g[i]).array()
+        H[i] = assemble(h[i]).array()
+        J[i] = assemble(j[i]).get_local()
+
+    I = np.eye(A[0].shape[0])
+    Z = np.zeros(A[0].shape)
+    M = np.block([[   I,    Z,    Z,    Z,     Z,     Z], \
+                  [B[0], A[0],    Z,    Z, DC[0],     Z], \
+                  [   Z, B[1], A[1],    Z,     Z, DC[1]], \
+                  [   Z,    Z,    I,    Z,     Z,     I], \
+                  [H[0],    Z,    Z, F[0],  G[0],     Z], \
+                  [   Z, H[1],    Z,    Z,  F[1],  G[1]] ])
+
+
+    rhs = np.concatenate([y0.vector().get_local(), E[0], E[1], y_T.vector().get_local(), J[0], J[1]])
+    v = np.linalg.solve(M, rhs)
+
+    ys = [Function(U) for i in range(0,N+1)]
+    ps = [Function(U) for i in range(0,N+1)]
+
+    n = len(ys[0].vector().get_local())
+    ys[0].vector()[:] = v[0:n]
+    ys[1].vector()[:] = v[n:2*n]
+    ys[2].vector()[:] = v[2*n:3*n]
+
+    ps[0].vector()[:] = v[3*n:4*n]
+    ps[1].vector()[:] = v[4*n:5*n]
+    ps[2].vector()[:] = v[5*n:6*n]
+
+    u = np.zeros(N+1)
+    u[0] = assemble(ps[0]*ds(1))
+    u[1] = assemble(ps[1]*ds(1))
+    u[2] = assemble(ps[2]*ds(1))
+    pass
+
+
 def solve_forward(y0, us, y_outs):
     """ Solve forward equation of split system """
     phi = TestFunction(U)
@@ -74,7 +162,7 @@ def solve_forward(y0, us, y_outs):
     ys[0].assign(y_k0)
 
     while i < N:
-        y_out.assign(y_outs[i])
+        y_out.assign(y_outs[i+1])
         u.assign(us[i])
         solve(lhs == rhs, y)
         y_k0.assign(y)
@@ -95,6 +183,8 @@ def solve_adjoint(ys):
     # variational formulation
     lhs = (q_k1 / Constant(delta_t) * phi) * dx + alpha * inner(grad(phi), grad(q_k1)) * dx + gamma * phi * q_k1 * ds
     rhs = (q_k0 / Constant(delta_t) * phi) * dx + Constant(sigma_Q) * (y_Q - ybar) * phi * dx
+
+
 
     # function for storing the solution
     q = Function(U, name="q")
@@ -197,7 +287,7 @@ def func_J(u, y0, y_out):
 
 
 def grad_J(u, y0, y_out):
-    grad_fd_approximation = False
+    grad_fd_approximation = True
 
     # forward solve
     ys = solve_forward(y0, u, y_out)
@@ -210,13 +300,12 @@ def grad_J(u, y0, y_out):
 
     if grad_fd_approximation:
         print("grad_adj = {}".format(grad_adj))
-        print("|grad_adj| = {}".format(np.linalg.norm(grad_adj)))
-
         grad_fd = compute_gradient_fd(y0, u, y_out)
         print("grad_fd  = {}".format(grad_fd))
         grad_error = np.linalg.norm(grad_adj - grad_fd) / np.linalg.norm(grad_fd)
         if grad_error > 1.0e-2:
             print("WARNING: gradient error = {}".format(grad_error))
+        print("|grad_adj| = {}".format(np.linalg.norm(grad_adj)))
 
     return grad_adj
 
@@ -231,15 +320,18 @@ def optimization(y0, u, y_out):
 
 
 if __name__ == "__main__":
-    L = 10
-    N = 20
+
+    L = 1
+    N = 2
 
     print("time interval: {}".format(N * delta_t))
 
-    y_outs = np.array([0.10 * sin(i) for i in range(0, L + N)])
+    y_outs = np.array([0.1 * sin(i) for i in range(0, L + N)])
 
     y0 = Function(U)
     y0.interpolate(Expression("0.1", degree=1))  # initial value
+
+    optimality_system(y0, y_outs)
 
     u_guess = np.array([1.0 for i in range(0, N)])
 
@@ -250,12 +342,12 @@ if __name__ == "__main__":
         #plt.show()
 
         # solve optimal control problem
-        u_opt = optimization(y0, u_guess, y_outs[i:i + N])
+        u_opt = optimization(y0, u_guess, y_outs[i:i + N + 1])
 
-        #print("u_opt = {}".format(u_opt))
+        print("u_opt = {}".format(u_opt))
 
         # simulate next time step
-        ys = solve_forward(y0, u_opt[0:1], y_outs[i:i + 1])
+        ys = solve_forward(y0, u_opt[0:1], y_outs[i:i + 2])
 
         # update initial value for next time step
         y0.assign(ys[1])
