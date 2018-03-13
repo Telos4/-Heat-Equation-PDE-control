@@ -150,12 +150,10 @@ def eval_J(u_n, ys):
     L = len(u_n)
 
     y_temp = Function(U)
-    y_temp2 = Function(U)
 
     for i in range(0, L):
-        y_temp.assign(ys[i] - y_Q)
-        y_temp2.assign(ys[i + 1] - y_Q)
-        norm_y += norm(y_temp2)**2 * delta_t
+        y_temp.assign(ys[i + 1] - y_Q)
+        norm_y += norm(y_temp)**2 * delta_t
 
     for i in range(0, L):
         norm_u += (u_n[i] - u_ref)**2 * delta_t
