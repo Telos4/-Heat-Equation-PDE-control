@@ -43,7 +43,7 @@ u_ref = 0.0
 # weights for objective
 sigma_T = 1.0
 sigma_Q = 1.0
-sigma_u = 0.1
+sigma_u = 1.0
 
 # fenics output level
 set_log_level(WARNING)
@@ -74,7 +74,7 @@ def solve_forward(y0, us, y_outs):
     ys[0].assign(y_k0)
 
     while i < N:
-        y_out.assign(y_outs[i])
+        y_out.assign(y_outs[i+1])
         u.assign(us[i])
         solve(lhs == rhs, y)
         y_k0.assign(y)
@@ -150,22 +150,15 @@ def eval_J(u_n, ys):
     L = len(u_n)
 
     y_temp = Function(U)
-
-    for i in range(0, L+1):
-        y_temp.assign(ys[i] - y_Q)
-        y_sum_temp = delta_t * norm(y_temp) ** 2
-        norm_y += y_sum_temp
-    # for i in range(0, L):
-    #     y_temp.assign(ys[i] - y_Q)
-    #     y_sum_temp = norm(y_temp) ** 2
-    #     y_temp.assign(ys[i + 1] - y_Q)
-    #     y_sum_temp += norm(y_temp) ** 2
-    #     y_sum_temp *= delta_t * 0.5
-    #     norm_y += y_sum_temp
+    y_temp2 = Function(U)
 
     for i in range(0, L):
-        u_sum_temp = (u_n[i] - u_ref) ** 2 * delta_t
-        norm_u += u_sum_temp
+        y_temp.assign(ys[i] - y_Q)
+        y_temp2.assign(ys[i + 1] - y_Q)
+        norm_y += norm(y_temp2)**2 * delta_t
+
+    for i in range(0, L):
+        norm_u += (u_n[i] - u_ref)**2 * delta_t
 
     # final value
     y_temp.assign(ys[L] - y_T)
@@ -197,7 +190,7 @@ def func_J(u, y0, y_out):
 
 
 def grad_J(u, y0, y_out):
-    grad_fd_approximation = False
+    grad_fd_approximation = True
 
     # forward solve
     ys = solve_forward(y0, u, y_out)
@@ -210,13 +203,12 @@ def grad_J(u, y0, y_out):
 
     if grad_fd_approximation:
         print("grad_adj = {}".format(grad_adj))
-        print("|grad_adj| = {}".format(np.linalg.norm(grad_adj)))
-
         grad_fd = compute_gradient_fd(y0, u, y_out)
         print("grad_fd  = {}".format(grad_fd))
         grad_error = np.linalg.norm(grad_adj - grad_fd) / np.linalg.norm(grad_fd)
         if grad_error > 1.0e-2:
             print("WARNING: gradient error = {}".format(grad_error))
+        print("|grad_adj| = {}".format(np.linalg.norm(grad_adj)))
 
     return grad_adj
 
@@ -232,16 +224,16 @@ def optimization(y0, u, y_out):
 
 if __name__ == "__main__":
     L = 10
-    N = 20
+    N = 5
 
     print("time interval: {}".format(N * delta_t))
 
-    y_outs = np.array([0.10 * sin(i) for i in range(0, L + N)])
+    y_outs = np.array([1.0 for i in range(0, L + N)])
 
     y0 = Function(U)
-    y0.interpolate(Expression("0.1", degree=1))  # initial value
+    y0.interpolate(Expression("1.0", degree=1))  # initial value
 
-    u_guess = np.array([1.0 for i in range(0, N)])
+    u_guess = np.array([0.1 * (i) for i in range(0, N)])
 
     t0 = time.clock()
     for i in range(0, L):
@@ -250,12 +242,12 @@ if __name__ == "__main__":
         #plt.show()
 
         # solve optimal control problem
-        u_opt = optimization(y0, u_guess, y_outs[i:i + N])
+        u_opt = optimization(y0, u_guess, y_outs[i:i + N + 1])
 
         #print("u_opt = {}".format(u_opt))
 
         # simulate next time step
-        ys = solve_forward(y0, u_opt[0:1], y_outs[i:i + 1])
+        ys = solve_forward(y0, u_opt[0:1], y_outs[i:i + 2])
 
         # update initial value for next time step
         y0.assign(ys[1])
