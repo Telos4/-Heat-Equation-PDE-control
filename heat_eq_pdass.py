@@ -3,13 +3,14 @@ from fenics import *
 from os.path import abspath, basename, dirname, join
 import numpy as np
 import matplotlib.pyplot as plt
-import time
 import scipy.optimize
+from timeit import default_timer as timer
 
 from collections import OrderedDict
 
 # define a mesh
-mesh = UnitIntervalMesh(40)
+mesh = UnitIntervalMesh(50)
+#mesh = UnitSquareMesh(10,10)
 
 # Compile sub domains for boundaries
 left = CompiledSubDomain("near(x[0], 0.)")
@@ -35,24 +36,26 @@ U = FunctionSpace(mesh, "Lagrange", 1)
 # min_(y,u)  \sigma_Q/2 \int_{0,T} \int_{\Omega} |y - y_Q|_L2 dx dt + \sigma_T/2 \int_{\Omega} |y - y_T| dx
 #   + sigma_u/2 \int_{0,T} |u - u_ref|^2 dt
 y_T = Function(U)
-y_T.interpolate(Expression("1.0", degree=1))
+y_T.interpolate(Expression("0.0", degree=1))
 y_Q = Function(U)
-y_Q.interpolate(Expression("1.0", degree=1))
+y_Q.interpolate(Expression("0.0", degree=1))
 u_ref = 0.0
 
 # weights for objective
 sigma_T = 1.0
-sigma_Q = 1.0
-sigma_u = 1.0
+sigma_Q = 0.01
+sigma_u = 0.01
 
 # fenics output level
 set_log_level(WARNING)
 
 def optimality_system(y0, y_outs, ys_opt, ps_opt, u_opt):
-    N = len(y_outs) - 1
+
+    t0 = timer()
+    N = len(y_outs)
     phi = TestFunction(U)
-    ys = [TrialFunction(U) for i in range(0,N+1)]
-    ps = [TrialFunction(U) for i in range(0,N+1)]
+    ys = [TrialFunction(U) for i in range(0,N)]
+    ps = [TrialFunction(U) for i in range(0,N)]
 
     a = {}
     b = {}
@@ -64,7 +67,7 @@ def optimality_system(y0, y_outs, ys_opt, ps_opt, u_opt):
     g = {}
     h = {}
     j = {}
-    for i in range(0,N):
+    for i in range(0,N-1):
         a[i] = ys[i+1]/Constant(delta_t) * phi * dx + alpha * inner(grad(ys[i+1]), grad(phi)) * dx \
                + gamma * phi * ys[i+1] * ds
         b[i] = -ys[i]/Constant(delta_t) * phi * dx
@@ -90,7 +93,7 @@ def optimality_system(y0, y_outs, ys_opt, ps_opt, u_opt):
     J = {}
 
     DC = {}
-    for i in range(0,N):
+    for i in range(0,N-1):
         A[i] = assemble(a[i]).array()
         B[i] = assemble(b[i]).array()
         C[i] = assemble(c[i]).get_local()
@@ -105,37 +108,57 @@ def optimality_system(y0, y_outs, ys_opt, ps_opt, u_opt):
         H[i] = assemble(h[i]).array()
         J[i] = assemble(j[i]).get_local()
 
-    I = np.eye(A[0].shape[0])
-    Z = np.zeros(A[0].shape)
-    M = np.block([[   I,    Z,    Z,     Z,     Z,     Z],\
-                  [B[0], A[0],    Z, DC[0],     Z,     Z],\
-                  [   Z, B[1], A[1],     Z, DC[1],     Z],\
-                  [   Z,    Z,    I,     Z,     Z,     I],\
-                  [   Z, H[0],    Z,  F[0],  G[0],     Z],\
-                  [   Z,    Z, H[1],     Z,  F[1],  G[1]] ])
 
+    n = A[0].shape[0]
+    M = np.zeros((2*N*n, 2*N*n))
+    rhs = np.zeros(2*N*n)
 
-    rhs = np.concatenate([y0.vector().get_local(), E[0], E[1], y_T.vector().get_local(), J[0], J[1]])
+    # set matrix blocks for initial values of state equation
+    M[0:n,0:n] = np.eye(n,n)
+    rhs[0:n] = y0.vector().get_local()
+
+    # set matrix blocks for initial values of adjoint equation
+    M[N*n:(N+1)*n, (N-1)*n:N*n] = sigma_T * np.eye(n,n)
+    M[N*n:(N+1)*n, N*n+(N-1)*n:2*N*n] = np.eye(n,n)
+    rhs[N*n:(N+1)*n] = sigma_T * y_T.vector().get_local()
+
+    for i in range(0,N-1):
+        # matrix blocks for state equation
+        M[n+i*n:n+(i+1)*n, i*n:(i+1)*n] = B[i]
+        M[n+i*n:n+(i+1)*n, n+i*n:n+(i+1)*n] = A[i]
+        M[n+i*n:n+(i+1)*n, N*n+i*n:N*n+(i+1)*n] = DC[i]
+
+        # matrix blocks for adjoint equation
+        M[(N+1)*n+i*n:(N+1)*n+(i+1)*n, n+i*n:n+(i+1)*n] = H[i]
+        M[(N+1)*n+i*n:(N+1)*n+(i+1)*n, N*n+i*n:N*n+(i+1)*n] = F[i]
+        M[(N+1)*n+i*n:(N+1)*n+(i+1)*n, (N+1)*n+i*n:(N+1)*n+(i+1)*n] = G[i]
+
+        # right hand side of state equation
+        rhs[n+i*n:n+(i+1)*n] = E[i]
+
+        # right hand side of adjoint equation
+        rhs[(N+1)*n+i*n:(N+1)*n+(i+1)*n] = J[i]
+    t1 = timer()
+    print("time for assembly in PDASS: {}".format(t1 - t0))
+
+    # solve the linear system
+    t0 = timer()
     v = np.linalg.solve(M, rhs)
+    t1 = timer()
+    print("time for linear solve in PDASS: {}".format(t1 - t0))
+    #v_opt = np.concatenate([ys_opt[0].vector().get_local(), ys_opt[1].vector().get_local(), ys_opt[2].vector().get_local(), \
+    #        ps_opt[0].vector().get_local(), ps_opt[1].vector().get_local(), ps_opt[2].vector().get_local()])
 
-    v_opt = np.concatenate([ys_opt[0].vector().get_local(), ys_opt[1].vector().get_local(), ys_opt[2].vector().get_local(), \
-            ps_opt[0].vector().get_local(), ps_opt[1].vector().get_local(), ps_opt[2].vector().get_local()])
+    ys = [Function(U) for i in range(0,N)]
+    ps = [Function(U) for i in range(0,N)]
+    u = np.zeros(N-1)
 
-    ys = [Function(U) for i in range(0,N+1)]
-    ps = [Function(U) for i in range(0,N+1)]
+    for i in range(0,N):
+        ys[i].vector()[:] = v[i*n:(i+1)*n]
+        ps[i].vector()[:] = v[N*n+i*n:N*n+(i+1)*n]
 
-    n = len(ys[0].vector().get_local())
-    ys[0].vector()[:] = v[0:n]
-    ys[1].vector()[:] = v[n:2*n]
-    ys[2].vector()[:] = v[2*n:3*n]
-
-    ps[0].vector()[:] = v[3*n:4*n]
-    ps[1].vector()[:] = v[4*n:5*n]
-    ps[2].vector()[:] = v[5*n:6*n]
-
-    u = np.zeros(N)
-    u[0] = assemble(gamma/Constant(sigma_u) * ps[0]*ds(1))
-    u[1] = assemble(gamma/Constant(sigma_u) * ps[1]*ds(1))
+    for i in range(0,N-1):
+        u[i] = assemble(gamma/Constant(sigma_u) * ps[i]*ds(1))
 
     print("|u - u_opt| = {}".format(np.linalg.norm(u-u_opt)))
     return M, rhs, v
@@ -282,7 +305,7 @@ def func_J(u, y0, y_out):
 
 
 def grad_J(u, y0, y_out):
-    grad_fd_approximation = True
+    grad_fd_approximation = False
 
     # forward solve
     ys = solve_forward(y0, u, y_out)
@@ -306,7 +329,10 @@ def grad_J(u, y0, y_out):
 
 
 def optimization(y0, u, y_out):
+    t0 = timer()
     res = scipy.optimize.minimize(func_J, u, method='L-BFGS-B', jac=grad_J, args=(y0, y_out), options={'gtol':1e-5})
+    t1 = timer()
+    print("time for gradient method: {}".format(t1 - t0))
     #res = scipy.optimize.minimize(func_J, u, method='CG', jac=grad_J, args=(y0, y_out))
     u_opt = res.x
     J = res.fun
@@ -318,11 +344,11 @@ def optimization(y0, u, y_out):
 if __name__ == "__main__":
 
     L = 1
-    N = 2
+    N = 50
 
     print("time interval: {}".format(N * delta_t))
 
-    y_outs = np.array([1.0 for i in range(0, L + N)])
+    y_outs = np.array([0.0 for i in range(0, L + N)])
 
     y0 = Function(U)
     y0.interpolate(Expression("1.0", degree=1))  # initial value
@@ -333,7 +359,6 @@ if __name__ == "__main__":
     #u_guess = np.array([0.03720524, 0.0494554 ])
     #u_guess = np.array([0.49124591, 0.98660247])
 
-    t0 = time.clock()
     for i in range(0, L):
         print("\n\ntime step {}".format(i))
         plot(y0)
@@ -351,11 +376,9 @@ if __name__ == "__main__":
 
         M, rhs, v = optimality_system(y0, y_outs, ys_opt, ps_opt, u_opt)
         # update initial value for next time step
-        y0.assign(ys[1])
+        #y0.assign(ys[1])
 
         u_guess = np.roll(u_opt, -1)
         u_guess[-1] = u_guess[-2]
 
         pass
-    t = time.clock() - t0
-    print("elapsed time: {}".format(t))
