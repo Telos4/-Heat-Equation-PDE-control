@@ -35,7 +35,7 @@ U = FunctionSpace(mesh, "Lagrange", 1)
 # min_(y,u)  \sigma_Q/2 \int_{0,T} \int_{\Omega} |y - y_Q|_L2 dx dt + \sigma_T/2 \int_{\Omega} |y - y_T| dx
 #   + sigma_u/2 \int_{0,T} |u - u_ref|^2 dt
 y_T = Function(U)
-y_T.interpolate(Expression("0.0", degree=1))
+y_T.interpolate(Expression("1.0", degree=1))
 y_Q = Function(U)
 y_Q.interpolate(Expression("0.0", degree=1))
 u_ref = 0.0

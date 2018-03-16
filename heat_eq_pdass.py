@@ -26,7 +26,7 @@ ds = Measure("ds", subdomain_data=boundary_parts)
 delta_t = 5.0e-3
 
 # define constants of the PDE
-alpha = Constant(1.0)
+alpha = Constant(0.5)
 beta = Constant(1.0)
 gamma = Constant(1.0e6)
 
@@ -69,14 +69,14 @@ def optimality_system(y0, y_outs, ys_opt, ps_opt, u_opt):
     j = {}
     for i in range(0,N-1):
         a[i] = ys[i+1]/Constant(delta_t) * phi * dx + alpha * inner(grad(ys[i+1]), grad(phi)) * dx \
-               + gamma * phi * ys[i+1] * ds
+               + alpha * gamma * phi * ys[i+1] * ds
         b[i] = -ys[i]/Constant(delta_t) * phi * dx
-        c[i] = -gamma * Constant(1)/Constant(sigma_u) * ps[i+1] * ds(1)
+        c[i] = -alpha * gamma * Constant(1)/Constant(sigma_u) * ps[i+1] * ds(1)
         d[i] = gamma * phi * ds(1)
-        e[i] = gamma * Constant(y_outs[i+1]) * phi * ds(0)
+        e[i] = alpha * gamma * Constant(y_outs[i+1]) * phi * ds(0)
 
         f[i] = ps[i]/Constant(delta_t) * phi * dx + alpha * inner(grad(phi), grad(ps[i])) * dx \
-               + gamma * phi * ps[i] * ds
+               + alpha * gamma * phi * ps[i] * ds
         g[i] = -ps[i+1]/Constant(delta_t) * phi * dx
         h[i] = sigma_Q * ys[i] * phi * dx
         j[i] = sigma_Q * y_Q * phi * dx
@@ -177,8 +177,8 @@ def solve_forward(y0, us, y_outs):
 
     # variational formulation
     lhs = (y_k1 / Constant(delta_t) * phi) * dx + alpha * inner(grad(phi), grad(
-        y_k1)) * dx + gamma * phi * y_k1 * ds
-    rhs = (y_k0 / Constant(delta_t) * phi) * dx + gamma * u * phi * ds(1) + gamma * y_out * phi * ds(0)
+        y_k1)) * dx + alpha * gamma * phi * y_k1 * ds
+    rhs = (y_k0 / Constant(delta_t) * phi) * dx + alpha * gamma * u * phi * ds(1) + alpha * gamma * y_out * phi * ds(0)
 
     # function for storing the solution
     y = Function(U, name="y")
@@ -210,7 +210,7 @@ def solve_adjoint(ys):
     q_k0.assign(Constant(sigma_T) * (y_T - ys[-1])) # initial value for adjoint
 
     # variational formulation
-    lhs = (q_k1 / Constant(delta_t) * phi) * dx + alpha * inner(grad(phi), grad(q_k1)) * dx + gamma * phi * q_k1 * ds
+    lhs = (q_k1 / Constant(delta_t) * phi) * dx + alpha * inner(grad(phi), grad(q_k1)) * dx + alpha * gamma * phi * q_k1 * ds
     rhs = (q_k0 / Constant(delta_t) * phi) * dx + Constant(sigma_Q) * (y_Q - ybar) * phi * dx
 
     # function for storing the solution
@@ -344,7 +344,7 @@ def optimization(y0, u, y_out):
 if __name__ == "__main__":
 
     L = 1
-    N = 50
+    N = 3
 
     print("time interval: {}".format(N * delta_t))
 

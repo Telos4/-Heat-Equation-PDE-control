@@ -15,7 +15,7 @@ portrait % Alternatively landscape
 %	ARTICLE INFORMATION
 %----------------------------------------------------------------------------------------
 
-\articletitle{Notes on the simulation of the heat equation in Firedrake} 
+\articletitle{Notes on the simulation of the convection diffusion equation in FEniCS} 
 
 \datenotesstarted{October 10, 2017}
 \docdate{\datenotesstarted; rev. \today}
@@ -43,22 +43,33 @@ portrait % Alternatively landscape
 \section{Setting}
 Consider the following equation
 \begin{equation}
-y_t -  \alpha \Delta y = 0 \text{ on } Q := \Omega \times [0,T]
+y_t -  \alpha \Delta y + w \nabla y = 0 \text{ on } Q := \Omega \times [0,T]
 \label{eq:pde}
 \end{equation}
-where $y : Q \rightarrow \mathbb{R}$ is the temperature, $\alpha \in \mathbb{R}$ is the diffusion coefficient. We use the shorthand $y_t = \frac{\partial y}{\partial t}$ to denote the time derivative.
- 
-As a domain we consider the unit square. The boundary is partitioned in an isolating boundary $\Gamma_i$ and a control boundary $\Gamma_c$.
-On the control part of the boundary heating/cooling is applied which is described by a Dirichlet condition
+where $y : Q \rightarrow \mathbb{R}$ is the temperature, $\alpha \in \mathbb{R}$ is the diffusion coefficient and $w : [0,T] \rightarrow \Omega$ is the velocity field. We use the shorthand $y_t = \frac{\partial y}{\partial t}$ to denote the time derivative.
+
+Let $\Omega$ be the domain. The boundary is partitioned in an boundary $\Gamma_{out}$ where some outside temperature is prescribed and a control boundary $\Gamma_c$. On one part of the boundary a controllable t is applied which is described by a Dirichlet condition
 \begin{equation}
 y = u \text{ on } \Gamma_c.
 \end{equation}
-On the isolating part we have
+On the other part we have
 \begin{equation}
-- \frac{\partial y}{\partial n} = 0 \text{ on } \Gamma_i
+y = y_{out} \text{ on } \Gamma_{out}
 \end{equation}
 where $\frac{\partial y}{\partial n}$ is the derivative of $y$ in normal direction.
-
+We approximate the Dirichlet boundary conditions by using the following Robin type boundary condition instead
+\begin{equation}
+\frac{\partial y}{\partial n} + \gamma y = \gamma z \text{ on } \Gamma.
+\label{eq:robin-bc}
+\end{equation}
+By choosing 
+$\gamma := 10^3$ and
+$z := \begin{cases}
+y_{out} &\text{ on } \Gamma_{out} \\ 
+u &\text{ on } \Gamma_c \\
+\end{cases}
+$
+we can approximate the Dirichlet boundary conditions. This will also allow us to extend the setting more easily in the future.
 \begin{center}
 \begin{tikzpicture}
 \draw[->] (-0.25,0) -- (3.25,0) node[anchor=north] {};
@@ -77,70 +88,100 @@ where $\frac{\partial y}{\partial n}$ is the derivative of $y$ in normal directi
 		;
 \end{tikzpicture}
 \end{center}
-For the moment we assume that $u : [0, T] \rightarrow \mathbb{R}$ and $y_{out} : [0,T] \rightarrow \mathbb{R}$ are constant on $\Gamma_c$ and $\Gamma_{out}$ respectively, i.e. that they are independent of space.
-
-TODO: how to get to this boundary condition!
-
-For simplicity we use a single Robin type boundary condition instead
-\begin{equation}
-- \beta \frac{\partial y}{\partial n} = \gamma (y - z) \text{ on } \Gamma.
-\label{eq:robin-bc}
-\end{equation}
-By choosing 
-$\gamma := \begin{cases}
-\gamma_{out} &\text{ on } \Gamma_i \\ 
-\gamma_c &\text{ on } \Gamma_c \\
-\end{cases}
-$
-and
-$z := \begin{cases}
-y_{out} &\text{ on } \Gamma_{out} \\ 
-u &\text{ on } \Gamma_c \\
-\end{cases}
-$
-we can approximate both types of boundary conditions in a uniform way. 
-This will also allow us to extend the setting more easily in the future.
-\section{Numerical simulation of the heat equation}
+\section{Numerical simulation of the convection diffusion equation}
 We simulate the equation using the finite element method.
 \subsection{Weak form}
-For the weak form we first discretize in time by picking a sampling rate $h > 0$. We define $y_k := y(\cdot, t_0 + h k)$, $y_{out,k} := y_{out}(\cdot, t_0 + h k) $, $u_k := u(t_0 + h k)$, $z_k := z(t_0 + h k)$ for $k \in \{0, 1, \hdots, N\}$. \\
-The initial value $y_0$ is given. To compute the next state $y_{k+1}$ for each $k \in \{0, 1, \hdots, N-1\}$  we replace $y_t$ in equation \eqref{eq:pde} by $\frac{y_{k+1} - y_k}{h}$ and $y$ by $y_{k+1}$ using backward Euler. Multiplying with a test function $v$ and integrating over the domain $\Omega$ yields
+% linear functionals for boundary
+\newcommand{\Ft}[1]{\langle F(t), {#1} \rangle}
+\newcommand{\Bt}[2]{\langle B {#1}, {#2} \rangle}
+\newcommand{\Fk}[1]{\langle F_k, {#1} \rangle}
+% linear functionals for boundary (explicit)
+\newcommand{\Fte}[2]{\alpha \go {#1} \bi{}{#2}{\Go}}
+\newcommand{\Bte}[2]{\alpha \gc {#1} \bi{}{#2}{\Gc}}
+% bilinear form a(t; phi, psi)
+\newcommand{\at}[2]{a(t; {#1},{#2})}
+% bilinear form a(t; phi, psi) (explicit)
+\newcommand{\ate}[2]{\alpha \ltwospe{\nabla {#1}}{\nabla {#2}} + \int_{\Omega} (w \cdot \nabla {#1}) {#2} \; dx + \alpha\gc \bi{{#1}}{{#2}}{\Gc} + \alpha \go \bi{{#1}}{{#2}}{\Go}}
+
+Multiplying with a test function and integrating over the domain $\Omega$ yields
 \begin{equation}
-\int_{\Omega} \frac{y_{k+1} - y_k}{h} v \; dx - \alpha \int_{\Omega} \Delta y_{k+1} v \; dx = 0 \text{ for } k \in \{0, 1, \hdots, N-1\}.
+\int_{\Omega} \frac{d}{dt}y v \; dx - \alpha \int_{\Omega} \Delta y v \; dx + \int_{\Omega} (w \cdot \nabla y) v \; dx  = 0
 \end{equation}
-Using partial integration on the second integral we get
+Using partial integration and substituting the boundary conditions we obtain
 \begin{equation}
-\int_{\Omega} \frac{y_{k+1} - y_k}{h} v \; dx - \alpha \int_{\Gamma}  \frac{\partial y_{k+1}}{\partial n} v \; ds + \alpha \int_{\Omega} \nabla y_{k+1} \cdot \nabla v \; dx = 0
+\ltwospe{\dt{y}}{v} + \alpha \ltwospe{\nabla y}{\nabla v} + \ltwospe{(w \cdot \nabla y)}{v} + \alpha \gc \bi{(y - u)}{v}{\Gc} + \alpha \go \bi{(y -  \yo)}{v}{\Go} = 0
 \end{equation}
-Substituting the boundary condition \eqref{eq:robin-bc} we obtain
+We reorder by terms depending on $y$:
+\begin{align*}
+\ltwospe{\dt{y}}{v} + \alpha \ltwospe{\nabla y}{\nabla v} + \ltwospe{(w \cdot \nabla y)}{v} + \alpha \gc \bi{y}{v}{\Gc} + \alpha \go \bi{y}{v}{\Go} \\
+= \alpha \gc \bi{u}{v}{\Gc} + \alpha \go \bi{\yo}{v}{\Go}
+\end{align*}
+This can be written more compactly be using the definitions 
+\begin{align*}
+\ltwosp{\varphi}{\psi} &= \ltwospe{\varphi}{\psi} \\
+\Ft{\varphi} &= \Fte{\yo(t)}{\varphi} \\
+\Bt{u}{\varphi} &= \Bte{u}{\varphi}
+\end{align*}
+and the bilinear form
 \begin{equation}
-\int_{\Omega} \frac{y_{k+1} - y_k}{h} v \; dx + \alpha \int_{\Gamma} \frac{ \gamma}{\beta}  (y_{k+1} - z_k) v \; ds + \alpha \int_{\Omega} \nabla y_{k+1} \cdot \nabla v \; dx = 0
+\at{\varphi}{\psi} = \ate{\varphi}{\psi}
 \end{equation}
-TODO: Strictly speaking, for backward Euler we may actually have to use $z_{k+1}$ here instead. Think about this!\\
-Substituting the definition of $z_k$ and $\gamma$ on the different parts $\Gamma_{out}$ and $\Gamma_c$ of the boundary we get
+We get
 \begin{equation}
-\int_{\Omega} \frac{y_{k+1} - y_k}{h} v \; dx +  \alpha \int_{\Gamma_c} \frac{\gamma_c}{\beta}  (y_{k+1} - u_k) v \; ds  +  \alpha\int_{\Gamma_{out}} \frac{ \gamma_{out}}{\beta}  (y_{k+1} - y_{out,k}) v \; ds + \alpha \int_{\Omega} \nabla y_{k+1} \cdot \nabla v \; dx = 0
+\ltwosp{\dt{y}}{v} + \at{y}{v} = \Bt{u}{v} + \Ft{v}
+\label{eq:fem-system}
 \end{equation}
+
+\subsection{Time discretization}
+We discretize in time using the implicit Euler method. We pick a sampling rate $h > 0$ and define $y_k := y(\cdot, t_0 + h k)$, $y_{out,k} := y_{out}(\cdot, t_0 + h k) $, $u_k := u(t_0 + h k)$, $z_k := z(t_0 + h k)$ for $k \in \{0, 1, \hdots, N\}$. \\
+The time derivative of the state is approximated by
+\begin{equation}
+\dt y \approx \frac{y_{k+1} - y_k}{h}
+\end{equation}
+The initial value $y_0$ is given. To compute the next state $y_{k+1}$ for each $k \in \{0, 1, \hdots, N-1\}$  we replace $\dt{y}$ in equation \eqref{eq:fem-system} by $\frac{y_{k+1} - y_k}{h}$ and $y$ by $y_{k+1}$, as well as $\yo(t)$ by $\yo_{,k+1}$ and $u(t)$ by $u_{k}$. Note that we use $u_k$ instead of $u_{k+1}$ since we assume $u$ to be piecewise constant on each time interval.
+This leads to 
+\begin{equation}
+\ltwosp{\frac{y_{k+1} - y_k}{h}}{v} + \at{y_{k+1}}{v} = \Bt{u_k}{v} + \Fk{v}
+\end{equation}
+or explicitely
+\begin{align*}
+\ltwospe{\frac{y_{k+1} - y_k}{h}}{v} + \ate{y_{k+1}}{v} \\= \Bte{u_k}{v} + \Fte{\yo_{,k+1}}{v}
+\end{align*}
+Again, reordering by the known and unknown terms yields
+\begin{align*}
+\ltwospe{\frac{y_{k+1}}{h}}{v} + \ate{y_{k+1}}{v} \\= \ltwospe{\frac{y_k}{h}}{v} + \Bte{u_k}{v} + \Fte{\yo_{,k+1}}{v}
+\end{align*}
 
 \subsection{Implementation in Firedrake}
-The above variational equation is solved in Firedrake for each $k \in \{0, 1, \hdots, N-1\}$:
+The above variational equation is solved in FEniCs for each $k \in \{0, 1, \hdots, N-1\}$:
 \begin{python}
-# Definitions 
-S = FunctionSpace(self.mesh, "CG", 1)
-v = TestFunction(S)
-y1 = Function(S)
-y0 = Function(S)
+# define a mesh
+mesh = UnitIntervalMesh(50)
 
-h = Constant(0.001)
-gamma = [0.0, 0.0, 1.0e3, 0.0] # gamma for different parts of the boundary
-ac = 0.2
-u = [0.0, 0.0, 25.0, 0.0]
+# Compile sub domains for boundaries
+left = CompiledSubDomain("near(x[0], 0.)")
+right = CompiledSubDomain("near(x[0], 1.)")
+
+# Label boundaries, required for the objective
+boundary_parts = MeshFunction("size_t", mesh, mesh.topology().dim() - 1)
+left.mark(boundary_parts, 0)  # boundary part for outside temperature
+right.mark(boundary_parts, 1)  # boundary part where control is applied
+ds = Measure("ds", subdomain_data=boundary_parts)
+
+# Choose a time step size
+delta_t = 5.0e-3
+
+# define constants of the PDE
+alpha = Constant(1.0)
+gamma = Constant(1.0e6)
+
+U = FunctionSpace(mesh, "Lagrange", 1)
 \end{python}
 
 \begin{python}
-a = (y1 * v + h * ac * inner(grad(y1), grad(v))) * dx
-for i in range(1,5):
-    a += h * ac * Constant(gamma[i-1]) * y1 * v * ds(i)
+# variational formulation
+lhs = (y_k1 / Constant(delta_t) * phi) * dx + alpha * inner(grad(phi), grad(y_k1)) * dx + alpha * gamma * phi * y_k1 * ds
+rhs = (y_k0 / Constant(delta_t) * phi) * dx + alpha * gamma * u * phi * ds(1) + alpha * gamma * y_out * phi * ds(0)
 \end{python}
 
 

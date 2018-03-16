@@ -68,13 +68,29 @@
 \newcommand{\printtitle}{
 \begin{center}
 \textbf{\Large{\doctitle}}
-
 \docdate
 
 \docauthor
 \end{center}
 }
-
+% yout
+\newcommand{\yo}{{y_{out}}}
+% Gamma out
+\newcommand{\Go}{\Gamma_{out}}
+% Gamma c
+\newcommand{\Gc}{\Gamma_{c}}
+% gamma out
+\newcommand{\go}{\gamma_{out}}
+% gamma c
+\newcommand{\gc}{\gamma_{c}}
+% L2 scalar product
+\newcommand{\ltwosp}[2]{\langle{#1},{#2}\rangle_{L^2(\Omega)}}
+% L2 scalar product (explicit)
+\newcommand{\ltwospe}[2]{\int_{\Omega} {#1}{#2} \; dx}
+% boundary integral
+\newcommand{\bi}[3]{\int_{#3} {#1}{#2} \; ds}
+% dt
+\newcommand{\dt}[1]{\frac{d}{dt}{#1}}
 %----------------------------------------------------------------------------------------
 %	STRUCTURE MODIFICATIONS
 %----------------------------------------------------------------------------------------
